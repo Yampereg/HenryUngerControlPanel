@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { ENTITY_TYPES, JUNCTION_MAP, EntityType, R2_IMAGES_PREFIX } from '@/lib/constants'
-import { deleteFromR2 } from '@/lib/r2'
+import { deleteFromR2, r2KeyExists, copyInR2 } from '@/lib/r2'
 
 export async function POST(req: NextRequest) {
   const body = await req.json() as {
@@ -24,10 +24,10 @@ export async function POST(req: NextRequest) {
   // 1. Migrate junction rows: move deleteId's lectures → keepId
   // ------------------------------------------------------------------
   if (fromJunction && toJunction) {
-    // Get every lecture linked to the entity being deleted
+    // Get every lecture linked to the entity being deleted (select * to preserve all columns)
     const { data: fromRows, error: fetchErr } = await supabase
       .from(fromJunction.table)
-      .select('lecture_id')
+      .select('*')
       .eq(fromJunction.fkCol, deleteId)
 
     if (fetchErr) {
@@ -42,11 +42,15 @@ export async function POST(req: NextRequest) {
         .select('lecture_id')
         .eq(toJunction.fkCol, keepId)
 
-      const existingLectureIds = new Set((existingRows ?? []).map((r) => r.lecture_id))
+      const existingLectureIds = new Set((existingRows ?? []).map((r: Record<string, unknown>) => r.lecture_id))
 
-      const newRows = fromRows
+      const newRows = (fromRows as Record<string, unknown>[])
         .filter((r) => !existingLectureIds.has(r.lecture_id))
-        .map((r) => ({ lecture_id: r.lecture_id, [toJunction.fkCol]: keepId }))
+        .map((r) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { [fromJunction.fkCol]: _removed, ...rest } = r
+          return { ...rest, [toJunction.fkCol]: keepId }
+        })
 
       if (newRows.length > 0) {
         const { error: insertErr } = await supabase
@@ -85,12 +89,28 @@ export async function POST(req: NextRequest) {
   }
 
   // ------------------------------------------------------------------
-  // 3. Delete R2 image (best-effort)
+  // 3. Handle R2 images (best-effort)
+  //    • If keep has no image but delete does → copy delete's image to keep
+  //    • Then delete the deleted entity's image
   // ------------------------------------------------------------------
   try {
-    await deleteFromR2(`${R2_IMAGES_PREFIX}/${deleteType}/${deleteId}.jpeg`)
+    const deleteKey = `${R2_IMAGES_PREFIX}/${deleteType}/${deleteId}.jpeg`
+    const keepKey   = `${R2_IMAGES_PREFIX}/${keepType}/${keepId}.jpeg`
+
+    const [deleteHasImage, keepHasImage] = await Promise.all([
+      r2KeyExists(deleteKey),
+      r2KeyExists(keepKey),
+    ])
+
+    if (deleteHasImage && !keepHasImage) {
+      await copyInR2(deleteKey, keepKey)
+    }
+
+    if (deleteHasImage) {
+      await deleteFromR2(deleteKey)
+    }
   } catch (e) {
-    console.warn('[merge del image]', e)
+    console.warn('[merge image]', e)
   }
 
   return NextResponse.json({ ok: true })

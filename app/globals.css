@@ -35,6 +35,12 @@
     -webkit-backdrop-filter: blur(32px);
   }
 
+  /* Solid background for floating dropdowns / popovers — glass is too transparent */
+  .dropdown-bg {
+    background: #13131f;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+  }
+
   /* Animated dashed border */
   .animate-dash {
     animation: dashMove 24s linear infinite;

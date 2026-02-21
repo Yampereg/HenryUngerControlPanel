@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   HeadObjectCommand,
   DeleteObjectCommand,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3'
 
 const accountId  = process.env.R2_ACCOUNT_ID!
@@ -60,6 +61,15 @@ export async function uploadToR2(
 /** Delete a key from R2 (no-op if it doesn't exist) */
 export async function deleteFromR2(key: string): Promise<void> {
   await r2.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }))
+}
+
+/** Copy an existing R2 object to a new key (same bucket) */
+export async function copyInR2(srcKey: string, destKey: string): Promise<void> {
+  await r2.send(new CopyObjectCommand({
+    Bucket:     bucketName,
+    CopySource: `${bucketName}/${srcKey}`,
+    Key:        destKey,
+  }))
 }
 
 /** Check whether a specific key exists in R2 */

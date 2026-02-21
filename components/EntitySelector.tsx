@@ -56,8 +56,8 @@ export function EntitySelector({ selected, onChange }: Props) {
             animate={{ opacity: 1, y: 0,  scale: 1 }}
             exit={{    opacity: 0, y: -8, scale: 0.98 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute top-full mt-2 inset-x-0 z-50 glass rounded-xl overflow-hidden
-                       border border-white/[0.10] shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+            className="absolute top-full mt-2 inset-x-0 z-50 dropdown-bg rounded-xl overflow-hidden
+                       shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
           >
             {(Object.entries(ENTITY_TYPES) as [EntityType, typeof ENTITY_TYPES[EntityType]][]).map(
               ([key, cfg]) => (
