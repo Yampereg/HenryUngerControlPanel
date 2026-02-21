@@ -2,17 +2,18 @@
 
 import { useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Database, GitMerge, ImageIcon, Layers, Pencil, RefreshCw } from 'lucide-react'
+import { Database, GitMerge, ImageIcon, Layers, Pencil, RefreshCw, Shuffle } from 'lucide-react'
 import { Entity, EntityType, ENTITY_TYPES } from '@/lib/constants'
 import { EntitySelector } from './EntitySelector'
 import { TargetSelector } from './TargetSelector'
 import { AuraUploadZone } from './AuraUploadZone'
 import { EntityEditor } from './EntityEditor'
 import { MergeEntities } from './MergeEntities'
+import { EntityReclassifier } from './EntityReclassifier'
 import { useToast } from './ToastProvider'
 import clsx from 'clsx'
 
-type Tab = 'upload' | 'edit' | 'merge'
+type Tab = 'upload' | 'edit' | 'merge' | 'entities'
 
 // ---------------------------------------------------------------------------
 // Stat card — compact for phone
@@ -215,6 +216,18 @@ export function Dashboard() {
               <GitMerge size={12} />
               Merge
             </button>
+            <button
+              onClick={() => setTab('entities')}
+              className={clsx(
+                'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-all duration-200',
+                tab === 'entities'
+                  ? 'bg-aura-accent/10 text-aura-accent border border-aura-accent/20'
+                  : 'text-aura-muted',
+              )}
+            >
+              <Shuffle size={12} />
+              Entities
+            </button>
           </div>
         </motion.header>
 
@@ -240,6 +253,17 @@ export function Dashboard() {
               transition={{ duration: 0.18 }}
             >
               <MergeEntities />
+            </motion.div>
+          )}
+          {tab === 'entities' && (
+            <motion.div
+              key="entities"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+            >
+              <EntityReclassifier />
             </motion.div>
           )}
         </AnimatePresence>
