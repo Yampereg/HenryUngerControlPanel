@@ -44,8 +44,17 @@ export async function POST(req: NextRequest) {
 
       const existingLectureIds = new Set((existingRows ?? []).map((r: Record<string, unknown>) => r.lecture_id))
 
+      // Deduplicate by lecture_id: one entity can have multiple rows per lecture
+      // (different relationship_types). Keep only the first occurrence to avoid
+      // violating the (lecture_id, entity_id) unique constraint on insert.
+      const seenLectureIds = new Set<unknown>()
       const newRows = (fromRows as Record<string, unknown>[])
-        .filter((r) => !existingLectureIds.has(r.lecture_id))
+        .filter((r) => {
+          if (existingLectureIds.has(r.lecture_id)) return false
+          if (seenLectureIds.has(r.lecture_id))     return false
+          seenLectureIds.add(r.lecture_id)
+          return true
+        })
         .map((r) => {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { [fromJunction.fkCol]: _removed, ...rest } = r
