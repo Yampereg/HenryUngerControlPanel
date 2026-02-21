@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
           })
           .map((r) => {
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { [fromJunction.fkCol]: _removed, ...rest } = r
+            const { [fromJunction.fkCol]: _fk, id: _id, ...rest } = r
             return { ...rest, [toJunction.fkCol]: newId }
           })
 
