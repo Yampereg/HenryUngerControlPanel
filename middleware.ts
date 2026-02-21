@@ -21,8 +21,8 @@ export function middleware(request: NextRequest) {
     const res = NextResponse.redirect(cleanUrl)
     res.cookies.set(COOKIE_NAME, PANEL_TOKEN, {
       httpOnly: true,
-      sameSite: 'lax',
-      secure:   process.env.NODE_ENV === 'production',
+      sameSite: 'none',  // required for cross-site iframe
+      secure:   true,    // sameSite=none requires Secure
       maxAge:   COOKIE_TTL,
       path:     '/',
     })
