@@ -36,52 +36,39 @@ export async function POST(req: NextRequest) {
     }
 
     if (fromRows && fromRows.length > 0) {
-      // Find lectures already linked to keepId so we don't create duplicates
+      // Find lecture_ids already linked to keepId — these would conflict on update
       const { data: existingRows } = await supabase
         .from(toJunction.table)
         .select('lecture_id')
         .eq(toJunction.fkCol, keepId)
 
-      const existingLectureIds = new Set((existingRows ?? []).map((r: Record<string, unknown>) => r.lecture_id))
+      const existingLectureIds = (existingRows ?? []).map((r: Record<string, unknown>) => r.lecture_id as number)
 
-      // Deduplicate by lecture_id: one entity can have multiple rows per lecture
-      // (different relationship_types). Keep only the first occurrence to avoid
-      // violating the (lecture_id, entity_id) unique constraint on insert.
-      const seenLectureIds = new Set<unknown>()
-      const newRows = (fromRows as Record<string, unknown>[])
-        .filter((r) => {
-          if (existingLectureIds.has(r.lecture_id)) return false
-          if (seenLectureIds.has(r.lecture_id))     return false
-          seenLectureIds.add(r.lecture_id)
-          return true
-        })
-        .map((r) => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { [fromJunction.fkCol]: _removed, ...rest } = r
-          return { ...rest, [toJunction.fkCol]: keepId }
-        })
-
-      if (newRows.length > 0) {
-        const { error: insertErr } = await supabase
-          .from(toJunction.table)
-          .insert(newRows)
-        if (insertErr) {
-          console.error('[merge insert]', insertErr)
-          return NextResponse.json({ error: insertErr.message }, { status: 500 })
+      // Step 1: delete the deleteId rows that would conflict (keepId already covers them)
+      if (existingLectureIds.length > 0) {
+        const { error: delConflictErr } = await supabase
+          .from(fromJunction.table)
+          .delete()
+          .eq(fromJunction.fkCol, deleteId)
+          .in('lecture_id', existingLectureIds)
+        if (delConflictErr) {
+          console.error('[merge del conflict]', delConflictErr)
+          return NextResponse.json({ error: delConflictErr.message }, { status: 500 })
         }
+      }
+
+      // Step 2: update all remaining deleteId rows → point them to keepId
+      // This preserves relationship_type and all other columns in-place.
+      const { error: updateErr } = await supabase
+        .from(fromJunction.table)
+        .update({ [fromJunction.fkCol]: keepId })
+        .eq(fromJunction.fkCol, deleteId)
+      if (updateErr) {
+        console.error('[merge update]', updateErr)
+        return NextResponse.json({ error: updateErr.message }, { status: 500 })
       }
     }
 
-    // Remove all junction rows for the deleted entity
-    const { error: delJunctionErr } = await supabase
-      .from(fromJunction.table)
-      .delete()
-      .eq(fromJunction.fkCol, deleteId)
-
-    if (delJunctionErr) {
-      console.error('[merge del junction]', delJunctionErr)
-      return NextResponse.json({ error: delJunctionErr.message }, { status: 500 })
-    }
   }
 
   // ------------------------------------------------------------------
