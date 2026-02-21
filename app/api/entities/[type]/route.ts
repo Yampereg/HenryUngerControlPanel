@@ -39,7 +39,8 @@ export async function GET(
     }
 
     // 3. Build entity list
-    const allEntities = (rows ?? []).map((row: Record<string, unknown>) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const allEntities = ((rows ?? []) as any[]).map((row: Record<string, unknown>) => ({
       id:          row.id as number,
       displayName: row[nameField] as string,
       hasImage:    existingIds.has(row.id as number),
