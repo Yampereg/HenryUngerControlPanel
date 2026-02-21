@@ -80,7 +80,8 @@ export async function GET() {
         const junc = JUNCTION_MAP[type]
         if (!junc) return
         const { data } = await supabase.from(junc.table).select(junc.fkCol)
-        for (const row of (data ?? []) as Record<string, number>[]) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const row of (data ?? []) as unknown as Record<string, number>[]) {
           const key = `${type}:${row[junc.fkCol]}`
           junctionCounts.set(key, (junctionCounts.get(key) ?? 0) + 1)
         }
