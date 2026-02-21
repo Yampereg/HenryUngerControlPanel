@@ -54,6 +54,13 @@ const FUZZY_THRESHOLD = 0.80
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
+interface DuplicateGroup {
+  name: string
+  entities: { id: number; type: EntityType; displayName: string; hebrewName: string | null; connectionCount: number; hasImage: boolean }[]
+  matchType: 'exact' | 'similar'
+  similarity: number
+}
+
 export async function GET() {
   try {
     // 1. Fetch all entities from all five types
@@ -119,7 +126,7 @@ export async function GET() {
       if (!byNameBucket.has(key)) byNameBucket.set(key, [])
       byNameBucket.get(key)!.push(entity)
     }
-    const exactGroups = Array.from(byNameBucket.values())
+    const exactGroups: DuplicateGroup[] = Array.from(byNameBucket.values())
       .filter(g => g.length >= 2)
       .map(g => ({
         name:       g[0].displayName,
@@ -140,7 +147,7 @@ export async function GET() {
         }
 
     // 6. Fuzzy similar pairs — respects canCompare() rules
-    const similarGroups: typeof exactGroups = []
+    const similarGroups: DuplicateGroup[] = []
     const seenPairs = new Set<string>()
 
     for (let i = 0; i < allEntities.length; i++) {
