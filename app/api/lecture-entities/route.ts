@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 2. Fetch entity details
-  const entityIds = (juncRows as Record<string, unknown>[]).map(r => r[junction.fkCol] as number)
+  const entityIds = (juncRows as unknown as Record<string, unknown>[]).map(r => r[junction.fkCol] as number)
 
   const { data: entityRows, error: entityErr } = await supabase
     .from(category)
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
     ((entityRows ?? []) as unknown as Record<string, unknown>[]).map(e => [e.id as number, e]),
   )
 
-  const result = (juncRows as Record<string, unknown>[]).map(row => {
+  const result = (juncRows as unknown as Record<string, unknown>[]).map(row => {
     const eid    = row[junction.fkCol] as number
     const entity = entityMap.get(eid)
     return {
