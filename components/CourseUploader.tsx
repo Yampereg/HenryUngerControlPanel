@@ -472,11 +472,9 @@ export function CourseUploader() {
                 {queuedCount} lecture{queuedCount !== 1 ? 's' : ''} queued
               </p>
               <p className="text-sm text-aura-muted mt-1">
-                Transcription will run in the background.
+                The Transcriber daemon will pick this up automatically.
                 <br />
-                Run <code className="text-[11px] bg-white/[0.06] px-1.5 py-0.5 rounded">
-                  python process_queue.py
-                </code> in the Transcriber to start.
+                Check progress below — it updates every 10 s.
               </p>
             </div>
             <button
