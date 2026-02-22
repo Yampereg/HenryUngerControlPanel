@@ -1,20 +1,21 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Upload, CheckCircle2, AlertCircle,
-  Image as ImageIcon, Link, Loader2, ArrowRight,
+  Image as ImageIcon, Link, Loader2, ArrowRight, Crop,
 } from 'lucide-react'
-import { Entity, EntityType } from '@/lib/constants'
+import { Entity, EntityType, R2_IMAGES_PREFIX } from '@/lib/constants'
 import { useToast } from './ToastProvider'
+import { ImageCropper } from './ImageCropper'
 import clsx from 'clsx'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type Tab = 'file' | 'url'
-type ZoneState = 'idle' | 'hover' | 'fetching_url' | 'preview' | 'uploading' | 'success' | 'error'
+type Tab      = 'file' | 'url' | 'crop'
+type ZoneState = 'idle' | 'hover' | 'fetching_url' | 'loading_crop' | 'cropping' | 'preview' | 'uploading' | 'success' | 'error'
 
 interface Step { label: string; done: boolean }
 
@@ -37,12 +38,22 @@ export function AuraUploadZone({ entity, entityType, onSuccess }: Props) {
   const [urlInput,   setUrlInput]   = useState('')
   const [steps,      setSteps]      = useState<Step[]>([])
   const [successUrl, setSuccessUrl] = useState<string | null>(null)
+  const [cropSrc,    setCropSrc]    = useState<string | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const disabled = !entity || !entityType
 
+  // When entity changes while in crop mode, reset to idle
+  useEffect(() => {
+    if (state === 'cropping' || state === 'loading_crop') {
+      setState('idle')
+      if (cropSrc) { URL.revokeObjectURL(cropSrc); setCropSrc(null) }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity?.id])
+
   // -------------------------------------------------------------------------
-  // Shared: handle a File object (from drop, browse, or URL fetch)
+  // Shared: handle a File object (from drop, browse, URL fetch, or crop)
   // -------------------------------------------------------------------------
   const handleFile = useCallback(
     (f: File) => {
@@ -106,6 +117,47 @@ export function AuraUploadZone({ entity, entityType, onSuccess }: Props) {
   }
 
   // -------------------------------------------------------------------------
+  // Crop tab — fetch existing R2 image then open the cropper
+  // -------------------------------------------------------------------------
+  async function loadCropImage() {
+    if (!entity || !entityType) return
+    setState('loading_crop')
+
+    try {
+      const publicBase = process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? ''
+      const r2Key      = `${R2_IMAGES_PREFIX}/${entityType}/${entity.id}.jpeg`
+      const imageUrl   = publicBase ? `${publicBase}/${r2Key}` : ''
+
+      if (!imageUrl) throw new Error('R2 public URL not configured')
+
+      // Proxy via fetch-image to avoid CORS issues with canvas
+      const res = await fetch(`/api/fetch-image?url=${encodeURIComponent(imageUrl)}`)
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error ?? `Server error ${res.status}`)
+      }
+
+      const blob      = await res.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      setCropSrc(objectUrl)
+      setState('cropping')
+    } catch (err) {
+      setState('idle')
+      toastError('Could not load image', (err as Error).message)
+    }
+  }
+
+  function handleCropApply(croppedFile: File) {
+    if (cropSrc) { URL.revokeObjectURL(cropSrc); setCropSrc(null) }
+    handleFile(croppedFile)   // → 'preview' state → normal upload flow
+  }
+
+  function handleCropCancel() {
+    if (cropSrc) { URL.revokeObjectURL(cropSrc); setCropSrc(null) }
+    setState('idle')
+  }
+
+  // -------------------------------------------------------------------------
   // Upload to R2
   // -------------------------------------------------------------------------
   async function upload() {
@@ -162,18 +214,21 @@ export function AuraUploadZone({ entity, entityType, onSuccess }: Props) {
     setSteps([])
     setSuccessUrl(null)
     setUrlInput('')
+    if (cropSrc) { URL.revokeObjectURL(cropSrc); setCropSrc(null) }
     if (inputRef.current) inputRef.current.value = ''
   }
 
   // -------------------------------------------------------------------------
-  // Derived
+  // Derived flags
   // -------------------------------------------------------------------------
   const isHovering = state === 'hover'
-  const isFetching = state === 'fetching_url'
+  const isFetching = state === 'fetching_url' || state === 'loading_crop'
   const isLoading  = state === 'uploading'
   const isDone     = state === 'success'
   const isError    = state === 'error'
-  const isInactive = state === 'idle' || isFetching
+  const isInactive = state === 'idle' || state === 'fetching_url'
+
+  const showCropTab = !!(entity?.hasImage)
 
   const borderColor = clsx(
     isLoading  ? 'border-aura-indigo/50'  :
@@ -190,6 +245,24 @@ export function AuraUploadZone({ entity, entityType, onSuccess }: Props) {
     isHovering || state === 'preview' ? 'shadow-[0_0_50px_rgba(34,211,238,0.08)]' :
     '',
   )
+
+  // -------------------------------------------------------------------------
+  // Crop mode — full replacement of the normal zone UI
+  // -------------------------------------------------------------------------
+  if (state === 'cropping' && cropSrc) {
+    return (
+      <div className="flex flex-col gap-4">
+        <p className="text-xs text-aura-muted text-center">
+          Drag the corners to adjust the crop, then click <strong className="text-aura-text">Apply</strong>.
+        </p>
+        <ImageCropper
+          imgSrc={cropSrc}
+          onApply={handleCropApply}
+          onCancel={handleCropCancel}
+        />
+      </div>
+    )
+  }
 
   // -------------------------------------------------------------------------
   // Render
@@ -221,6 +294,22 @@ export function AuraUploadZone({ entity, entityType, onSuccess }: Props) {
                 {t === 'file' ? 'Drop / Browse' : 'From URL'}
               </button>
             ))}
+
+            {/* Crop tab — only when entity has an existing image */}
+            {showCropTab && (
+              <button
+                onClick={() => { setTab('crop'); setState('idle') }}
+                className={clsx(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200',
+                  tab === 'crop'
+                    ? 'bg-aura-indigo/15 text-aura-indigo'
+                    : 'text-aura-muted hover:text-aura-text',
+                )}
+              >
+                <Crop size={11} />
+                Crop existing
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -349,15 +438,47 @@ export function AuraUploadZone({ entity, entityType, onSuccess }: Props) {
               </motion.div>
             )}
 
-            {/* Fetching URL */}
-            {state === 'fetching_url' && (
+            {/* CROP TAB · idle */}
+            {tab === 'crop' && state === 'idle' && (
+              <motion.div
+                key="crop-idle"
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                className="flex flex-col items-center gap-5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center
+                               bg-gradient-to-br from-aura-indigo/15 to-aura-accent/15
+                               border border-white/[0.07]">
+                  <Crop size={24} className="text-aura-indigo" />
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-aura-text font-semibold">Crop existing image</p>
+                  <p className="text-aura-muted text-sm">Load and crop the current image</p>
+                </div>
+                <button
+                  onClick={loadCropImage}
+                  disabled={disabled || isFetching}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl
+                             bg-aura-indigo/15 border border-aura-indigo/25 text-aura-indigo
+                             text-sm font-medium hover:bg-aura-indigo/22
+                             disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-200"
+                >
+                  <Crop size={14} /> Load &amp; Crop
+                </button>
+              </motion.div>
+            )}
+
+            {/* Fetching URL / loading crop */}
+            {(state === 'fetching_url' || state === 'loading_crop') && (
               <motion.div
                 key="fetching"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="flex flex-col items-center gap-4"
               >
                 <Loader2 size={36} className="text-aura-indigo animate-spin" />
-                <p className="text-aura-muted text-sm">Fetching image…</p>
+                <p className="text-aura-muted text-sm">
+                  {state === 'loading_crop' ? 'Loading image…' : 'Fetching image…'}
+                </p>
               </motion.div>
             )}
 

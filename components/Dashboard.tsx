@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Database, GitMerge, ImageIcon, Layers, Pencil, RefreshCw, Shuffle } from 'lucide-react'
+import { Database, GitMerge, ImageIcon, Layers, Link2, Pencil, RefreshCw, RotateCcw, Shuffle } from 'lucide-react'
 import { Entity, EntityType, ENTITY_TYPES } from '@/lib/constants'
 import { EntitySelector } from './EntitySelector'
 import { TargetSelector } from './TargetSelector'
@@ -10,10 +10,12 @@ import { AuraUploadZone } from './AuraUploadZone'
 import { EntityEditor } from './EntityEditor'
 import { MergeEntities } from './MergeEntities'
 import { EntityReclassifier } from './EntityReclassifier'
+import { RecoveryPanel } from './RecoveryPanel'
+import { RelationshipManager } from './RelationshipManager'
 import { useToast } from './ToastProvider'
 import clsx from 'clsx'
 
-type Tab = 'upload' | 'edit' | 'merge' | 'entities'
+type Tab = 'upload' | 'edit' | 'merge' | 'entities' | 'recovery' | 'links'
 
 // ---------------------------------------------------------------------------
 // Stat card — compact for phone
@@ -178,56 +180,31 @@ export function Dashboard() {
             </div>
           </div>
 
-          {/* Row 2: tab switcher — full width */}
-          <div className="flex p-0.5 rounded-xl bg-black/30 border border-white/[0.06]">
-            <button
-              onClick={() => setTab('upload')}
-              className={clsx(
-                'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-all duration-200',
-                tab === 'upload'
-                  ? 'bg-aura-accent/10 text-aura-accent border border-aura-accent/20'
-                  : 'text-aura-muted',
-              )}
-            >
-              <ImageIcon size={12} />
-              Upload
-            </button>
-            <button
-              onClick={() => setTab('edit')}
-              className={clsx(
-                'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-all duration-200',
-                tab === 'edit'
-                  ? 'bg-aura-accent/10 text-aura-accent border border-aura-accent/20'
-                  : 'text-aura-muted',
-              )}
-            >
-              <Pencil size={12} />
-              Edit
-            </button>
-            <button
-              onClick={() => setTab('merge')}
-              className={clsx(
-                'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-all duration-200',
-                tab === 'merge'
-                  ? 'bg-aura-accent/10 text-aura-accent border border-aura-accent/20'
-                  : 'text-aura-muted',
-              )}
-            >
-              <GitMerge size={12} />
-              Merge
-            </button>
-            <button
-              onClick={() => setTab('entities')}
-              className={clsx(
-                'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-all duration-200',
-                tab === 'entities'
-                  ? 'bg-aura-accent/10 text-aura-accent border border-aura-accent/20'
-                  : 'text-aura-muted',
-              )}
-            >
-              <Shuffle size={12} />
-              Entities
-            </button>
+          {/* Row 2: tab switcher — scrollable */}
+          <div className="flex p-0.5 rounded-xl bg-black/30 border border-white/[0.06] overflow-x-auto scrollbar-none">
+            {([
+              { id: 'upload',   label: 'Upload',   icon: <ImageIcon  size={12} /> },
+              { id: 'edit',     label: 'Edit',     icon: <Pencil     size={12} /> },
+              { id: 'merge',    label: 'Merge',    icon: <GitMerge   size={12} /> },
+              { id: 'entities', label: 'Entities', icon: <Shuffle    size={12} /> },
+              { id: 'recovery', label: 'Recovery', icon: <RotateCcw  size={12} /> },
+              { id: 'links',    label: 'Links',    icon: <Link2      size={12} /> },
+            ] as { id: Tab; label: string; icon: React.ReactNode }[]).map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={clsx(
+                  'shrink-0 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg',
+                  'text-xs font-medium transition-all duration-200 whitespace-nowrap',
+                  tab === id
+                    ? 'bg-aura-accent/10 text-aura-accent border border-aura-accent/20'
+                    : 'text-aura-muted',
+                )}
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
           </div>
         </motion.header>
 
@@ -264,6 +241,28 @@ export function Dashboard() {
               transition={{ duration: 0.18 }}
             >
               <EntityReclassifier />
+            </motion.div>
+          )}
+          {tab === 'recovery' && (
+            <motion.div
+              key="recovery"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+            >
+              <RecoveryPanel />
+            </motion.div>
+          )}
+          {tab === 'links' && (
+            <motion.div
+              key="links"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+            >
+              <RelationshipManager />
             </motion.div>
           )}
         </AnimatePresence>
