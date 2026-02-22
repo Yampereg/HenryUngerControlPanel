@@ -72,6 +72,17 @@ export async function copyInR2(srcKey: string, destKey: string): Promise<void> {
   }))
 }
 
+/** List immediate sub-prefixes (virtual "folders") under a given prefix */
+export async function listR2Prefixes(prefix = ''): Promise<string[]> {
+  const cmd = new ListObjectsV2Command({
+    Bucket: bucketName,
+    Prefix: prefix,
+    Delimiter: '/',
+  })
+  const res = await r2.send(cmd)
+  return (res.CommonPrefixes ?? []).map(p => p.Prefix ?? '').filter(Boolean)
+}
+
 /** Check whether a specific key exists in R2 */
 export async function r2KeyExists(key: string): Promise<boolean> {
   try {

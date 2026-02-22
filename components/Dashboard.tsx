@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Database, GitMerge, ImageIcon, Layers, Link2, Pencil, RefreshCw, RotateCcw, Shuffle } from 'lucide-react'
+import { Database, Film, GitMerge, ImageIcon, Layers, Link2, Pencil, RefreshCw, RotateCcw, Shuffle } from 'lucide-react'
 import { Entity, EntityType, ENTITY_TYPES } from '@/lib/constants'
 import { EntitySelector } from './EntitySelector'
 import { TargetSelector } from './TargetSelector'
@@ -12,10 +12,11 @@ import { MergeEntities } from './MergeEntities'
 import { EntityReclassifier } from './EntityReclassifier'
 import { RecoveryPanel } from './RecoveryPanel'
 import { RelationshipManager } from './RelationshipManager'
+import { CourseUploader } from './CourseUploader'
 import { useToast } from './ToastProvider'
 import clsx from 'clsx'
 
-type Tab = 'upload' | 'edit' | 'merge' | 'entities' | 'recovery' | 'links'
+type Tab = 'upload' | 'edit' | 'merge' | 'entities' | 'recovery' | 'links' | 'courses'
 
 // ---------------------------------------------------------------------------
 // Stat card — compact for phone
@@ -189,6 +190,7 @@ export function Dashboard() {
               { id: 'entities', label: 'Entities', icon: <Shuffle    size={12} /> },
               { id: 'recovery', label: 'Recovery', icon: <RotateCcw  size={12} /> },
               { id: 'links',    label: 'Links',    icon: <Link2      size={12} /> },
+              { id: 'courses',  label: 'Courses',  icon: <Film       size={12} /> },
             ] as { id: Tab; label: string; icon: React.ReactNode }[]).map(({ id, label, icon }) => (
               <button
                 key={id}
@@ -263,6 +265,17 @@ export function Dashboard() {
               transition={{ duration: 0.18 }}
             >
               <RelationshipManager />
+            </motion.div>
+          )}
+          {tab === 'courses' && (
+            <motion.div
+              key="courses"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+            >
+              <CourseUploader />
             </motion.div>
           )}
         </AnimatePresence>
