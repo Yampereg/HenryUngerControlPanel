@@ -82,15 +82,26 @@ function computeDiff(
 ): Record<EntityType, EntityDiff> {
   const result = {} as Record<EntityType, EntityDiff>
   for (const et of ENTITY_TYPES) {
-    const currentAll  = [...(current[et]?.discussed ?? []), ...(current[et]?.mentioned ?? [])]
-    const extractAll  = [...(extracted[et]?.discussed ?? []), ...(extracted[et]?.mentioned ?? [])]
-    const currentSet  = new Set(currentAll.map(n => n.toLowerCase()))
-    const extractSet  = new Set(extractAll.map(n => n.toLowerCase()))
-    result[et] = {
-      added:   extractAll.filter(n => !currentSet.has(n.toLowerCase())),
-      removed: currentAll.filter(n => !extractSet.has(n.toLowerCase())),
-      kept:    currentAll.filter(n => extractSet.has(n.toLowerCase())),
+    const currentAll = [...(current[et]?.discussed ?? []), ...(current[et]?.mentioned ?? [])]
+    const extractAll = [...(extracted[et]?.discussed ?? []), ...(extracted[et]?.mentioned ?? [])]
+    const currentSet = new Set(currentAll.map(n => n.toLowerCase()))
+    const extractSet = new Set(extractAll.map(n => n.toLowerCase()))
+
+    // Deduplicate so an entity in both discussed+mentioned only appears once
+    const seenAdded   = new Set<string>()
+    const added: string[] = []
+    for (const n of extractAll) {
+      const low = n.toLowerCase()
+      if (!currentSet.has(low) && !seenAdded.has(low)) { seenAdded.add(low); added.push(n) }
     }
+    const seenRemoved   = new Set<string>()
+    const removed: string[] = []
+    for (const n of currentAll) {
+      const low = n.toLowerCase()
+      if (!extractSet.has(low) && !seenRemoved.has(low)) { seenRemoved.add(low); removed.push(n) }
+    }
+
+    result[et] = { added, removed, kept: currentAll.filter(n => extractSet.has(n.toLowerCase())) }
   }
   return result
 }
