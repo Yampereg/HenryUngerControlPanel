@@ -112,7 +112,7 @@ async function fetchCurrentEntities(lectureId: number) {
       .eq('lecture_id', lectureId)
     current[et] = { discussed: [], mentioned: [] }
     for (const row of data ?? []) {
-      const name = (row as Record<string, Record<string, string>>)[et]?.[cfg.name] ?? ''
+      const name = ((row as unknown) as Record<string, Record<string, string>>)[et]?.[cfg.name] ?? ''
       const bucket = row.relationship_type === 'discussed' ? 'discussed' : 'mentioned'
       if (name) current[et][bucket].push(name)
     }
