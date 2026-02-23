@@ -119,10 +119,10 @@ export function CourseUploader() {
 
   useEffect(() => { loadHome() }, [loadHome])
 
-  // Auto-refresh lectures while in manage phase
+  // Auto-refresh lectures every 5 s while in manage phase
   useEffect(() => {
     if (phase !== 'manage' || !currentCourse) return
-    const id = setInterval(() => loadLectures(currentCourse.id), 10_000)
+    const id = setInterval(() => loadLectures(currentCourse.id), 5_000)
     return () => clearInterval(id)
   }, [phase, currentCourse, loadLectures])
 
@@ -209,6 +209,9 @@ export function CourseUploader() {
         ),
       )
       success('Queued!', `Lecture ${lectureNumber} added to transcription queue.`)
+      // Poll quickly so status updates as soon as the daemon picks it up
+      setTimeout(() => loadLectures(currentCourse.id), 3_000)
+      setTimeout(() => loadLectures(currentCourse.id), 8_000)
     } catch (e) {
       toastError('Failed', e instanceof Error ? e.message : String(e))
     } finally {
