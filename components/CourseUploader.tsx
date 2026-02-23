@@ -208,6 +208,7 @@ export function CourseUploader() {
         title: title.trim(),
         r2Dir: selectedDir.dir,
         subjectId,
+        lectureCount: 0,
       }
       goToManage(newCourse)
     } catch (e) {
