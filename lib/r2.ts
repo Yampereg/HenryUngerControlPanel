@@ -1,5 +1,6 @@
 import {
   S3Client,
+  GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   HeadObjectCommand,
@@ -81,6 +82,16 @@ export async function listR2Prefixes(prefix = ''): Promise<string[]> {
   })
   const res = await r2.send(cmd)
   return (res.CommonPrefixes ?? []).map(p => p.Prefix ?? '').filter(Boolean)
+}
+
+/** Download an R2 text object and return its content as a string */
+export async function getR2Text(key: string): Promise<string> {
+  const res = await r2.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
+  const chunks: Uint8Array[] = []
+  for await (const chunk of res.Body as AsyncIterable<Uint8Array>) {
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks).toString('utf-8')
 }
 
 /** Check whether a specific key exists in R2 */

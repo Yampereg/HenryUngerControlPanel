@@ -58,8 +58,8 @@ export async function POST(req: NextRequest) {
       const buffer = Buffer.from(await imageFile.arrayBuffer())
       await uploadToR2(r2Key, buffer, imageFile.type || 'image/jpeg')
 
-      const publicUrl = `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/${r2Key}`
-      await supabase.from('courses').update({ course_r2_url: publicUrl }).eq('id', courseId)
+      // course_r2_url is reserved for the course folder URL set by the
+      // transcription pipeline; the image is served via /api/media/course/{id}/image
     }
 
     // Discover lecture numbers from R2 sub-prefixes

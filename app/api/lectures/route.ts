@@ -11,9 +11,9 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabase
     .from('lectures')
-    .select('id, title')
+    .select('id, title, order_in_course, course_id')
     .eq('course_id', parseInt(courseId, 10))
-    .order('id')
+    .order('order_in_course')
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
