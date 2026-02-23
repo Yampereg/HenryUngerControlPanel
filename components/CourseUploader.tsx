@@ -22,7 +22,7 @@ import clsx from 'clsx'
 // ---------------------------------------------------------------------------
 interface R2Dir         { dir: string; lectureCount: number; defaultTitle: string }
 interface Subject       { id: number; nameEn: string; nameHe: string }
-interface ManagedCourse { id: number; title: string; r2Dir: string; subjectId: number | null; lectureCount: number }
+interface ManagedCourse { id: number; title: string; r2Dir: string; subjectId: number | null; lectureCount: number; r2LectureCount: number | null }
 interface LectureItem   {
   lectureNumber: number
   status:        'none' | 'pending' | 'running' | 'succeeded' | 'failed'
@@ -118,8 +118,9 @@ export function CourseUploader() {
         })),
       )
       setManagedCourses(
-        ((managedData.courses ?? []) as { id: number; title: string; r2_dir: string; subject_id: number | null; lecture_count: number }[]).map(c => ({
-          id: c.id, title: c.title, r2Dir: c.r2_dir, subjectId: c.subject_id, lectureCount: c.lecture_count ?? 0,
+        ((managedData.courses ?? []) as { id: number; title: string; r2_dir: string; subject_id: number | null; lecture_count: number; r2_lecture_count: number | null }[]).map(c => ({
+          id: c.id, title: c.title, r2Dir: c.r2_dir, subjectId: c.subject_id,
+          lectureCount: c.lecture_count ?? 0, r2LectureCount: c.r2_lecture_count ?? null,
         })),
       )
       setUploadStatus({
@@ -209,6 +210,7 @@ export function CourseUploader() {
         r2Dir: selectedDir.dir,
         subjectId,
         lectureCount: 0,
+        r2LectureCount: selectedDir.lectureCount,
       }
       goToManage(newCourse)
     } catch (e) {
@@ -393,8 +395,9 @@ export function CourseUploader() {
                 <div className="divide-y divide-white/[0.03]">
                   {managedCourses.map(c => {
                     const sub      = subjectFor(c.subjectId)
-                    const total    = dirs.find(d => d.dir === c.r2Dir)?.lectureCount
-                    // Use actual lecture rows in DB (catches manually-uploaded courses)
+                    // r2LectureCount = total lectures available in R2 (the full course size)
+                    // lectureCount   = lectures already in DB
+                    const total    = c.r2LectureCount
                     const uploaded = Math.max(c.lectureCount, uploadStatus?.succeededPerCourse[c.id] ?? 0)
                     const pct      = total != null && total > 0 ? Math.round((uploaded / total) * 100) : 0
                     const subtitle = [

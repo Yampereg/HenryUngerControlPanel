@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { listR2Prefixes } from '@/lib/r2'
 
 // GET /api/course-lectures?courseId=X
-// Returns the lecture numbers found in R2 for a course, merged with upload_job statuses.
+// Returns the lecture numbers for a course, merging R2 sub-dirs and DB rows.
 export async function GET(req: NextRequest) {
   const courseId = parseInt(req.nextUrl.searchParams.get('courseId') ?? '', 10)
   if (!courseId) {
@@ -17,18 +17,41 @@ export async function GET(req: NextRequest) {
     .eq('id', courseId)
     .single()
 
-  if (courseErr || !course?.r2_dir) {
-    return NextResponse.json({ error: 'Course not found or has no r2_dir' }, { status: 404 })
+  if (courseErr || !course) {
+    return NextResponse.json({ error: 'Course not found' }, { status: 404 })
   }
 
-  const r2Dir = course.r2_dir as string
+  const r2Dir = (course.r2_dir as string | null) ?? ''
 
-  // Discover lecture numbers from R2 sub-prefixes
-  const subPrefixes = await listR2Prefixes(`${r2Dir}/`)
-  const lectureNums = subPrefixes
-    .map(p => parseInt(p.replace(`${r2Dir}/`, '').replace(/\/$/, ''), 10))
-    .filter(n => !isNaN(n) && n > 0)
-    .sort((a, b) => a - b)
+  // Discover lecture numbers from R2 sub-prefixes (may be empty if no R2 folder)
+  let r2Nums = new Set<number>()
+  if (r2Dir) {
+    try {
+      const subPrefixes = await listR2Prefixes(`${r2Dir}/`)
+      r2Nums = new Set(
+        subPrefixes
+          .map(p => parseInt(p.replace(`${r2Dir}/`, '').replace(/\/$/, ''), 10))
+          .filter(n => !isNaN(n) && n > 0),
+      )
+    } catch {
+      // R2 unavailable or folder doesn't exist — fall back to DB only
+    }
+  }
+
+  // Also query actual lecture rows in the DB (catches manually-uploaded courses)
+  const { data: dbLectures } = await supabase
+    .from('lectures')
+    .select('order_in_course')
+    .eq('course_id', courseId)
+
+  const dbNums = new Set<number>(
+    ((dbLectures ?? []) as { order_in_course: number | null }[])
+      .map(l => l.order_in_course)
+      .filter((n): n is number => n != null && !isNaN(n) && n > 0),
+  )
+
+  // Union of R2 + DB lecture numbers
+  const allNums = [...new Set([...r2Nums, ...dbNums])].sort((a, b) => a - b)
 
   // Get existing upload_jobs for this course
   const { data: jobs } = await supabase
@@ -41,13 +64,15 @@ export async function GET(req: NextRequest) {
     ((jobs ?? []) as JobRow[]).map(j => [j.lecture_number, { id: j.id, status: j.status, output: j.output }]),
   )
 
-  const lectures = lectureNums.map(n => {
+  const lectures = allNums.map(n => {
     const job = jobMap.get(n)
+    // A lecture that exists in the DB is considered succeeded even without a job row
+    const status = job ? job.status : dbNums.has(n) ? 'succeeded' : 'none'
     return {
       lectureNumber: n,
-      status:        job ? job.status : 'none',
-      jobId:         job ? job.id : null,
-      output:        job?.output ?? null,
+      status,
+      jobId:  job ? job.id : null,
+      output: job?.output ?? null,
     }
   })
 
