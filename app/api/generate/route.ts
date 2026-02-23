@@ -111,8 +111,9 @@ async function fetchCurrentEntities(lectureId: number) {
       .select(`relationship_type, ${et}!inner(${cfg.name})`)
       .eq('lecture_id', lectureId)
     current[et] = { discussed: [], mentioned: [] }
-    for (const row of data ?? []) {
-      const name = ((row as unknown) as Record<string, Record<string, string>>)[et]?.[cfg.name] ?? ''
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const row of (data ?? []) as any[]) {
+      const name   = row[et]?.[cfg.name] ?? ''
       const bucket = row.relationship_type === 'discussed' ? 'discussed' : 'mentioned'
       if (name) current[et][bucket].push(name)
     }

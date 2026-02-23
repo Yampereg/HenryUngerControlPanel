@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { GitMerge, Loader2, RefreshCw, CheckCircle2, ArrowRight, ImageIcon, Link2 } from 'lucide-react'
+import { GitMerge, Loader2, RefreshCw, CheckCircle2, ArrowRight, ImageIcon, Link2, X, RotateCcw } from 'lucide-react'
 import { EntityType, ENTITY_TYPES, JUNCTION_MAP } from '@/lib/constants'
 import { useToast } from './ToastProvider'
 import clsx from 'clsx'
@@ -24,6 +24,41 @@ interface DuplicateGroup {
 }
 
 // ---------------------------------------------------------------------------
+// Merge history (localStorage)
+// ---------------------------------------------------------------------------
+const HISTORY_KEY = 'merge-history-v1'
+
+interface MergeHistoryEntry { keepType: EntityType }
+interface MergeHistory {
+  approved: Record<string, MergeHistoryEntry>  // groupSig → which type to keep
+  declined: string[]                           // groupSigs never to show
+}
+
+function loadHistory(): MergeHistory {
+  if (typeof window === 'undefined') return { approved: {}, declined: [] }
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    return raw ? (JSON.parse(raw) as MergeHistory) : { approved: {}, declined: [] }
+  } catch {
+    return { approved: {}, declined: [] }
+  }
+}
+
+function saveHistory(h: MergeHistory) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)) } catch { /* ignore */ }
+}
+
+// Signature based on name + sorted entity types (survives entity ID changes)
+function groupSig(group: DuplicateGroup): string {
+  return `${group.name.toLowerCase()}|${group.entities.map(e => e.type).sort().join(',')}`
+}
+
+// Stable unique key per group for keepMap/merging state (order-independent IDs)
+function groupKey(section: string, group: DuplicateGroup): string {
+  return `${section}:${group.entities.map(e => `${e.type}:${e.id}`).sort().join('|')}`
+}
+
+// ---------------------------------------------------------------------------
 // Single duplicate group card
 // ---------------------------------------------------------------------------
 function DuplicateCard({
@@ -31,13 +66,15 @@ function DuplicateCard({
   keepIdx,
   onSelect,
   onMerge,
+  onDecline,
   merging,
 }: {
-  group:    DuplicateGroup
-  keepIdx:  number | null
-  onSelect: (idx: number) => void
-  onMerge:  () => void
-  merging:  boolean
+  group:     DuplicateGroup
+  keepIdx:   number | null
+  onSelect:  (idx: number) => void
+  onMerge:   () => void
+  onDecline: () => void
+  merging:   boolean
 }) {
   const keepEntity     = keepIdx !== null ? group.entities[keepIdx] : null
   const deleteEntities = keepIdx !== null ? group.entities.filter((_, i) => i !== keepIdx) : []
@@ -55,21 +92,30 @@ function DuplicateCard({
           <p className="text-sm font-semibold text-aura-text">{group.name}</p>
           <p className="text-[11px] text-aura-muted mt-0.5">Tap the version to keep</p>
         </div>
-        <span className={clsx(
-          'text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0',
-          group.matchType === 'exact'
-            ? 'text-aura-error border-aura-error/30 bg-aura-error/10'
-            : 'text-aura-accent border-aura-accent/30 bg-aura-accent/10',
-        )}>
-          {group.matchType === 'exact' ? 'exact' : `${Math.round(group.similarity * 100)}% similar`}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={clsx(
+            'text-[10px] font-bold px-2 py-0.5 rounded-full border',
+            group.matchType === 'exact'
+              ? 'text-aura-error border-aura-error/30 bg-aura-error/10'
+              : 'text-aura-accent border-aura-accent/30 bg-aura-accent/10',
+          )}>
+            {group.matchType === 'exact' ? 'exact' : `${Math.round(group.similarity * 100)}% similar`}
+          </span>
+          <button
+            onClick={onDecline}
+            title="Decline — never show again"
+            className="text-aura-muted/40 hover:text-aura-error transition-colors p-0.5"
+          >
+            <X size={13} />
+          </button>
+        </div>
       </div>
 
       {/* Entity options */}
       <div className="p-3 space-y-2">
         {group.entities.map((entity, idx) => {
-          const cfg        = ENTITY_TYPES[entity.type]
-          const isSelected = keepIdx === idx
+          const cfg         = ENTITY_TYPES[entity.type]
+          const isSelected  = keepIdx === idx
           const hasJunction = entity.type in JUNCTION_MAP
 
           return (
@@ -86,24 +132,16 @@ function DuplicateCard({
               <span className="text-xl shrink-0 leading-none mt-0.5">{cfg.icon}</span>
 
               <div className="flex-1 min-w-0">
-                {/* Type label */}
-                <p className={clsx(
-                  'text-xs font-semibold',
-                  isSelected ? 'text-aura-accent' : 'text-aura-text',
-                )}>
+                <p className={clsx('text-xs font-semibold', isSelected ? 'text-aura-accent' : 'text-aura-text')}>
                   {cfg.label}
                   {!hasJunction && (
                     <span className="ml-1.5 text-[10px] text-aura-muted font-normal">(no connections)</span>
                   )}
                 </p>
-
-                {/* Hebrew name */}
                 {entity.hebrewName
                   ? <p className="text-xs text-aura-muted font-hebrew truncate mt-0.5" dir="rtl">{entity.hebrewName}</p>
                   : <p className="text-[10px] text-aura-muted/40 mt-0.5">no Hebrew name</p>
                 }
-
-                {/* Connections + image status badges */}
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                   <span className={clsx(
                     'inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border',
@@ -187,42 +225,29 @@ export function MergeEntities() {
   const [exact,   setExact]   = useState<DuplicateGroup[]>([])
   const [similar, setSimilar] = useState<DuplicateGroup[]>([])
   const [loading, setLoading] = useState(false)
-  const [keepMap, setKeepMap] = useState<Record<string, number>>({})   // groupKey → index to keep
+  const [keepMap, setKeepMap] = useState<Record<string, number>>({})
   const [merging, setMerging] = useState<string | null>(null)
+  const [historySize, setHistorySize] = useState<{ approved: number; declined: number }>({ approved: 0, declined: 0 })
 
-  const fetchDuplicates = useCallback(async () => {
-    setLoading(true)
-    setKeepMap({})
-    try {
-      const res  = await fetch('/api/entities/duplicates')
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed')
-      setExact(data.exact ?? [])
-      setSimilar(data.similar ?? [])
-    } catch (e: unknown) {
-      toastError('Load failed', e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }, [toastError])
+  // Sync history size display
+  const refreshHistorySize = useCallback(() => {
+    const h = loadHistory()
+    setHistorySize({ approved: Object.keys(h.approved).length, declined: h.declined.length })
+  }, [])
 
-  useEffect(() => { fetchDuplicates() }, [fetchDuplicates])
-
-  // Stable unique key per group
-  const groupKey = (section: string, group: DuplicateGroup) =>
-    `${section}:${group.entities.map(e => `${e.type}:${e.id}`).sort().join('|')}`
-
-  async function handleMerge(section: string, group: DuplicateGroup) {
-    const key     = groupKey(section, group)
-    const keepIdx = keepMap[key]
-    if (keepIdx === undefined) return
-
-    const keepEntity     = group.entities[keepIdx]
-    const deleteEntities = group.entities.filter((_, i) => i !== keepIdx)
+  // Core merge executor — used for both manual and auto merges
+  const doMerge = useCallback(async (
+    section: 'exact' | 'similar',
+    group: DuplicateGroup,
+    keepIdx: number,
+  ): Promise<boolean> => {
+    const key          = groupKey(section, group)
+    const keepEntity   = group.entities[keepIdx]
+    const toDelete     = group.entities.filter((_, i) => i !== keepIdx)
 
     setMerging(key)
     try {
-      for (const del of deleteEntities) {
+      for (const del of toDelete) {
         const res = await fetch('/api/entities/merge', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -239,30 +264,109 @@ export function MergeEntities() {
         }
       }
 
-      const remove = (prev: DuplicateGroup[]) =>
-        prev.filter(g => groupKey(section, g) !== key)
+      // Persist approval: remember which type to keep for this name+types combo
+      const h = loadHistory()
+      h.approved[groupSig(group)] = { keepType: keepEntity.type }
+      saveHistory(h)
+      refreshHistorySize()
+
+      // Remove from display
+      const remove = (prev: DuplicateGroup[]) => prev.filter(g => groupKey(section, g) !== key)
       if (section === 'exact') setExact(remove)
       else setSimilar(remove)
-
       setKeepMap(prev => { const n = { ...prev }; delete n[key]; return n })
-      success(
-        'Merged',
-        `"${group.name}" consolidated into ${ENTITY_TYPES[keepEntity.type].label} #${keepEntity.id}.`,
-      )
+
+      return true
     } catch (e: unknown) {
       toastError('Merge failed', e instanceof Error ? e.message : String(e))
+      return false
     } finally {
       setMerging(null)
     }
-  }
+  }, [toastError, refreshHistorySize])
+
+  const handleMerge = useCallback(async (section: 'exact' | 'similar', group: DuplicateGroup) => {
+    const key     = groupKey(section, group)
+    const keepIdx = keepMap[key]
+    if (keepIdx === undefined) return
+    const keepEntity = group.entities[keepIdx]
+    const ok = await doMerge(section, group, keepIdx)
+    if (ok) success('Merged', `"${group.name}" → ${ENTITY_TYPES[keepEntity.type].label} #${keepEntity.id}.`)
+  }, [keepMap, doMerge, success])
+
+  const handleDecline = useCallback((section: 'exact' | 'similar', group: DuplicateGroup) => {
+    const sig = groupSig(group)
+    const h   = loadHistory()
+    if (!h.declined.includes(sig)) {
+      h.declined.push(sig)
+      saveHistory(h)
+    }
+    refreshHistorySize()
+    const remove = (prev: DuplicateGroup[]) => prev.filter(g => groupSig(g) !== sig)
+    if (section === 'exact') setExact(remove)
+    else setSimilar(remove)
+  }, [refreshHistorySize])
+
+  const resetHistory = useCallback(() => {
+    saveHistory({ approved: {}, declined: [] })
+    refreshHistorySize()
+    success('Reset', 'Merge history cleared. Refresh to see all suggestions.')
+  }, [refreshHistorySize, success])
+
+  const fetchDuplicates = useCallback(async () => {
+    setLoading(true)
+    setKeepMap({})
+    try {
+      const res  = await fetch('/api/entities/duplicates')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed')
+
+      const h          = loadHistory()
+      const declinedSet = new Set(h.declined)
+
+      // Filter out declined groups
+      const exactGroups:   DuplicateGroup[] = (data.exact   ?? []).filter((g: DuplicateGroup) => !declinedSet.has(groupSig(g)))
+      const similarGroups: DuplicateGroup[] = (data.similar ?? []).filter((g: DuplicateGroup) => !declinedSet.has(groupSig(g)))
+
+      // Split: approved (auto-merge) vs new
+      const autoExact   = exactGroups.filter(g =>  h.approved[groupSig(g)])
+      const autoSimilar = similarGroups.filter(g => h.approved[groupSig(g)])
+      setExact(exactGroups.filter(g =>   !h.approved[groupSig(g)]))
+      setSimilar(similarGroups.filter(g => !h.approved[groupSig(g)]))
+
+      // Auto-merge approved groups silently
+      let autoCount = 0
+      for (const group of [...autoExact, ...autoSimilar]) {
+        const section   = autoExact.includes(group) ? 'exact' : 'similar'
+        const entry     = h.approved[groupSig(group)]
+        const keepIdx   = group.entities.findIndex(e => e.type === entry.keepType)
+        if (keepIdx !== -1) {
+          const ok = await doMerge(section, group, keepIdx)
+          if (ok) autoCount++
+        }
+      }
+      if (autoCount > 0) {
+        success('Auto-merged', `${autoCount} previously approved merge${autoCount > 1 ? 's' : ''} applied automatically.`)
+      }
+
+      refreshHistorySize()
+    } catch (e: unknown) {
+      toastError('Load failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [doMerge, success, toastError, refreshHistorySize])
+
+  useEffect(() => { fetchDuplicates() }, [fetchDuplicates])
 
   const totalCount = exact.length + similar.length
+  const hasHistory = historySize.approved > 0 || historySize.declined > 0
 
   return (
     <div className="space-y-4">
 
       {/* Header card */}
-      <div className="glass rounded-2xl p-4 border border-white/[0.07] flex items-center justify-between">
+      <div className="glass rounded-2xl p-4 border border-white/[0.07] flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-aura-text">Merge Entities</p>
           <p className="text-[11px] text-aura-muted mt-0.5">
@@ -273,14 +377,27 @@ export function MergeEntities() {
                 : 'No duplicates or similar names found'}
           </p>
         </div>
-        <button
-          onClick={fetchDuplicates}
-          disabled={loading}
-          className="text-aura-muted disabled:opacity-40"
-          title="Refresh"
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {hasHistory && (
+            <button
+              onClick={resetHistory}
+              title={`Reset merge history (${historySize.approved} approved, ${historySize.declined} declined)`}
+              className="flex items-center gap-1.5 text-[11px] text-aura-muted/60 hover:text-aura-muted
+                         border border-white/[0.06] hover:border-white/[0.12] rounded-lg px-2 py-1 transition-colors"
+            >
+              <RotateCcw size={11} />
+              Reset history
+            </button>
+          )}
+          <button
+            onClick={fetchDuplicates}
+            disabled={loading}
+            className="text-aura-muted disabled:opacity-40"
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       {/* Loading */}
@@ -314,6 +431,7 @@ export function MergeEntities() {
                   keepIdx={keepMap[key] ?? null}
                   onSelect={idx => setKeepMap(prev => ({ ...prev, [key]: idx }))}
                   onMerge={() => handleMerge('exact', group)}
+                  onDecline={() => handleDecline('exact', group)}
                   merging={merging === key}
                 />
               )
@@ -336,6 +454,7 @@ export function MergeEntities() {
                   keepIdx={keepMap[key] ?? null}
                   onSelect={idx => setKeepMap(prev => ({ ...prev, [key]: idx }))}
                   onMerge={() => handleMerge('similar', group)}
+                  onDecline={() => handleDecline('similar', group)}
                   merging={merging === key}
                 />
               )
