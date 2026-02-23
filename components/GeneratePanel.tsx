@@ -389,7 +389,7 @@ export function GeneratePanel() {
 
       {/* Results */}
       <AnimatePresence>
-        {phase === 'preview' && result && (
+        {(phase === 'preview' || phase === 'confirming') && result && (
           <motion.div
             key="result"
             initial={{ opacity: 0, y: 8 }}

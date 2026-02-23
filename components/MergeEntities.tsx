@@ -23,39 +23,34 @@ interface DuplicateGroup {
   similarity: number
 }
 
-// ---------------------------------------------------------------------------
-// Merge history (localStorage)
-// ---------------------------------------------------------------------------
-const HISTORY_KEY = 'merge-history-v1'
-
-interface MergeHistoryEntry { keepType: EntityType }
-interface MergeHistory {
-  approved: Record<string, MergeHistoryEntry>  // groupSig → which type to keep
-  declined: string[]                           // groupSigs never to show
+interface HistoryRow {
+  group_sig: string
+  action:    'approved' | 'declined'
+  keep_type: string | null
 }
 
-function loadHistory(): MergeHistory {
-  if (typeof window === 'undefined') return { approved: {}, declined: [] }
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY)
-    return raw ? (JSON.parse(raw) as MergeHistory) : { approved: {}, declined: [] }
-  } catch {
-    return { approved: {}, declined: [] }
-  }
-}
-
-function saveHistory(h: MergeHistory) {
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)) } catch { /* ignore */ }
-}
-
-// Signature based on name + sorted entity types (survives entity ID changes)
+// Signature based on name + sorted entity types (survives entity ID changes across merge cycles)
 function groupSig(group: DuplicateGroup): string {
   return `${group.name.toLowerCase()}|${group.entities.map(e => e.type).sort().join(',')}`
 }
 
-// Stable unique key per group for keepMap/merging state (order-independent IDs)
+// Stable display key for keepMap/merging state (order-independent IDs)
 function groupKey(section: string, group: DuplicateGroup): string {
   return `${section}:${group.entities.map(e => `${e.type}:${e.id}`).sort().join('|')}`
+}
+
+async function fetchHistory(): Promise<HistoryRow[]> {
+  const res = await fetch('/api/entities/merge-history')
+  if (!res.ok) return []
+  return res.json()
+}
+
+async function saveHistoryEntry(group_sig: string, action: 'approved' | 'declined', keep_type?: string) {
+  await fetch('/api/entities/merge-history', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ group_sig, action, keep_type: keep_type ?? null }),
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -76,8 +71,8 @@ function DuplicateCard({
   onDecline: () => void
   merging:   boolean
 }) {
-  const keepEntity     = keepIdx !== null ? group.entities[keepIdx] : null
-  const deleteEntities = keepIdx !== null ? group.entities.filter((_, i) => i !== keepIdx) : []
+  const keepEntity   = keepIdx !== null ? group.entities[keepIdx] : null
+  const toDelete     = keepIdx !== null ? group.entities.filter((_, i) => i !== keepIdx) : []
 
   return (
     <motion.div
@@ -130,7 +125,6 @@ function DuplicateCard({
               )}
             >
               <span className="text-xl shrink-0 leading-none mt-0.5">{cfg.icon}</span>
-
               <div className="flex-1 min-w-0">
                 <p className={clsx('text-xs font-semibold', isSelected ? 'text-aura-accent' : 'text-aura-text')}>
                   {cfg.label}
@@ -163,7 +157,6 @@ function DuplicateCard({
                   </span>
                 </div>
               </div>
-
               <span className="text-[10px] text-aura-muted/50 shrink-0 mt-0.5">#{entity.id}</span>
               {isSelected && <CheckCircle2 size={14} className="text-aura-accent shrink-0 mt-0.5" />}
             </button>
@@ -192,7 +185,7 @@ function DuplicateCard({
                 : <GitMerge size={13} />}
               Keep {ENTITY_TYPES[keepEntity.type].label}
               <ArrowRight size={11} className="opacity-60" />
-              {deleteEntities.map(d => `delete ${ENTITY_TYPES[d.type].label} #${d.id}`).join(', ')}
+              {toDelete.map(d => `delete ${ENTITY_TYPES[d.type].label} #${d.id}`).join(', ')}
             </button>
           </motion.div>
         )}
@@ -222,28 +215,22 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
 export function MergeEntities() {
   const { success, error: toastError } = useToast()
 
-  const [exact,   setExact]   = useState<DuplicateGroup[]>([])
-  const [similar, setSimilar] = useState<DuplicateGroup[]>([])
-  const [loading, setLoading] = useState(false)
-  const [keepMap, setKeepMap] = useState<Record<string, number>>({})
-  const [merging, setMerging] = useState<string | null>(null)
-  const [historySize, setHistorySize] = useState<{ approved: number; declined: number }>({ approved: 0, declined: 0 })
-
-  // Sync history size display
-  const refreshHistorySize = useCallback(() => {
-    const h = loadHistory()
-    setHistorySize({ approved: Object.keys(h.approved).length, declined: h.declined.length })
-  }, [])
+  const [exact,    setExact]   = useState<DuplicateGroup[]>([])
+  const [similar,  setSimilar] = useState<DuplicateGroup[]>([])
+  const [loading,  setLoading] = useState(false)
+  const [keepMap,  setKeepMap] = useState<Record<string, number>>({})
+  const [merging,  setMerging] = useState<string | null>(null)
+  const [hasHistory, setHasHistory] = useState(false)
 
   // Core merge executor — used for both manual and auto merges
   const doMerge = useCallback(async (
     section: 'exact' | 'similar',
-    group: DuplicateGroup,
+    group:   DuplicateGroup,
     keepIdx: number,
   ): Promise<boolean> => {
-    const key          = groupKey(section, group)
-    const keepEntity   = group.entities[keepIdx]
-    const toDelete     = group.entities.filter((_, i) => i !== keepIdx)
+    const key        = groupKey(section, group)
+    const keepEntity = group.entities[keepIdx]
+    const toDelete   = group.entities.filter((_, i) => i !== keepIdx)
 
     setMerging(key)
     try {
@@ -264,11 +251,9 @@ export function MergeEntities() {
         }
       }
 
-      // Persist approval: remember which type to keep for this name+types combo
-      const h = loadHistory()
-      h.approved[groupSig(group)] = { keepType: keepEntity.type }
-      saveHistory(h)
-      refreshHistorySize()
+      // Persist approval to DB
+      await saveHistoryEntry(groupSig(group), 'approved', keepEntity.type)
+      setHasHistory(true)
 
       // Remove from display
       const remove = (prev: DuplicateGroup[]) => prev.filter(g => groupKey(section, g) !== key)
@@ -283,7 +268,7 @@ export function MergeEntities() {
     } finally {
       setMerging(null)
     }
-  }, [toastError, refreshHistorySize])
+  }, [toastError])
 
   const handleMerge = useCallback(async (section: 'exact' | 'similar', group: DuplicateGroup) => {
     const key     = groupKey(section, group)
@@ -294,52 +279,55 @@ export function MergeEntities() {
     if (ok) success('Merged', `"${group.name}" → ${ENTITY_TYPES[keepEntity.type].label} #${keepEntity.id}.`)
   }, [keepMap, doMerge, success])
 
-  const handleDecline = useCallback((section: 'exact' | 'similar', group: DuplicateGroup) => {
-    const sig = groupSig(group)
-    const h   = loadHistory()
-    if (!h.declined.includes(sig)) {
-      h.declined.push(sig)
-      saveHistory(h)
-    }
-    refreshHistorySize()
+  const handleDecline = useCallback(async (section: 'exact' | 'similar', group: DuplicateGroup) => {
+    await saveHistoryEntry(groupSig(group), 'declined')
+    setHasHistory(true)
+    const sig    = groupSig(group)
     const remove = (prev: DuplicateGroup[]) => prev.filter(g => groupSig(g) !== sig)
     if (section === 'exact') setExact(remove)
     else setSimilar(remove)
-  }, [refreshHistorySize])
+  }, [])
 
-  const resetHistory = useCallback(() => {
-    saveHistory({ approved: {}, declined: [] })
-    refreshHistorySize()
+  const resetHistory = useCallback(async () => {
+    await fetch('/api/entities/merge-history', { method: 'DELETE' })
+    setHasHistory(false)
     success('Reset', 'Merge history cleared. Refresh to see all suggestions.')
-  }, [refreshHistorySize, success])
+  }, [success])
 
   const fetchDuplicates = useCallback(async () => {
     setLoading(true)
     setKeepMap({})
     try {
-      const res  = await fetch('/api/entities/duplicates')
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      const [dupRes, history] = await Promise.all([
+        fetch('/api/entities/duplicates').then(r => r.json()),
+        fetchHistory(),
+      ])
 
-      const h          = loadHistory()
-      const declinedSet = new Set(h.declined)
+      if (!dupRes || dupRes.error) throw new Error(dupRes?.error ?? 'Failed to load duplicates')
 
-      // Filter out declined groups
-      const exactGroups:   DuplicateGroup[] = (data.exact   ?? []).filter((g: DuplicateGroup) => !declinedSet.has(groupSig(g)))
-      const similarGroups: DuplicateGroup[] = (data.similar ?? []).filter((g: DuplicateGroup) => !declinedSet.has(groupSig(g)))
+      const approvedMap = new Map<string, string>()   // sig → keepType
+      const declinedSet = new Set<string>()
+      for (const row of history) {
+        if (row.action === 'approved' && row.keep_type) approvedMap.set(row.group_sig, row.keep_type)
+        if (row.action === 'declined') declinedSet.add(row.group_sig)
+      }
+      setHasHistory(history.length > 0)
 
-      // Split: approved (auto-merge) vs new
-      const autoExact   = exactGroups.filter(g =>  h.approved[groupSig(g)])
-      const autoSimilar = similarGroups.filter(g => h.approved[groupSig(g)])
-      setExact(exactGroups.filter(g =>   !h.approved[groupSig(g)]))
-      setSimilar(similarGroups.filter(g => !h.approved[groupSig(g)]))
+      // Filter out declined
+      const exactAll:   DuplicateGroup[] = (dupRes.exact   ?? []).filter((g: DuplicateGroup) => !declinedSet.has(groupSig(g)))
+      const similarAll: DuplicateGroup[] = (dupRes.similar ?? []).filter((g: DuplicateGroup) => !declinedSet.has(groupSig(g)))
 
-      // Auto-merge approved groups silently
+      // Split: approved (auto-merge) vs needs-review
+      const toAutoMerge = [...exactAll, ...similarAll].filter(g => approvedMap.has(groupSig(g)))
+      setExact(exactAll.filter(g => !approvedMap.has(groupSig(g))))
+      setSimilar(similarAll.filter(g => !approvedMap.has(groupSig(g))))
+
+      // Auto-merge approved groups
       let autoCount = 0
-      for (const group of [...autoExact, ...autoSimilar]) {
-        const section   = autoExact.includes(group) ? 'exact' : 'similar'
-        const entry     = h.approved[groupSig(group)]
-        const keepIdx   = group.entities.findIndex(e => e.type === entry.keepType)
+      for (const group of toAutoMerge) {
+        const keepType = approvedMap.get(groupSig(group))!
+        const keepIdx  = group.entities.findIndex(e => e.type === keepType)
+        const section  = exactAll.includes(group) ? 'exact' : 'similar'
         if (keepIdx !== -1) {
           const ok = await doMerge(section, group, keepIdx)
           if (ok) autoCount++
@@ -348,19 +336,16 @@ export function MergeEntities() {
       if (autoCount > 0) {
         success('Auto-merged', `${autoCount} previously approved merge${autoCount > 1 ? 's' : ''} applied automatically.`)
       }
-
-      refreshHistorySize()
     } catch (e: unknown) {
       toastError('Load failed', e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
-  }, [doMerge, success, toastError, refreshHistorySize])
+  }, [doMerge, success, toastError])
 
   useEffect(() => { fetchDuplicates() }, [fetchDuplicates])
 
   const totalCount = exact.length + similar.length
-  const hasHistory = historySize.approved > 0 || historySize.declined > 0
 
   return (
     <div className="space-y-4">
@@ -381,7 +366,7 @@ export function MergeEntities() {
           {hasHistory && (
             <button
               onClick={resetHistory}
-              title={`Reset merge history (${historySize.approved} approved, ${historySize.declined} declined)`}
+              title="Reset merge history (approved + declined)"
               className="flex items-center gap-1.5 text-[11px] text-aura-muted/60 hover:text-aura-muted
                          border border-white/[0.06] hover:border-white/[0.12] rounded-lg px-2 py-1 transition-colors"
             >
