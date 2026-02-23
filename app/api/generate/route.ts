@@ -58,7 +58,7 @@ async function callGemini(prompt: string, jsonMode = false): Promise<string> {
     model: 'gemini-2.5-flash',
     generationConfig: {
       temperature: jsonMode ? 0.1 : 0.3,
-      maxOutputTokens: jsonMode ? 8000 : 2000,
+      maxOutputTokens: jsonMode ? 8000 : 6000,
       ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
     },
   })
