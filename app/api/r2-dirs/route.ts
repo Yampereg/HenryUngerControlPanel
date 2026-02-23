@@ -14,19 +14,30 @@ export async function GET() {
     // 1. All top-level R2 prefixes
     const topPrefixes = await listR2Prefixes('')
 
-    // 2. r2_dirs already assigned to courses
-    const { data: existingCourses, error: courseErr } = await supabase
+    // 2. Collect all folders already in use by existing courses
+    const { data: allCourses, error: courseErr } = await supabase
       .from('courses')
-      .select('r2_dir')
-      .not('r2_dir', 'is', null)
+      .select('r2_dir, course_r2_url')
 
     if (courseErr) {
       return NextResponse.json({ error: courseErr.message }, { status: 500 })
     }
 
-    const usedDirs = new Set(
-      (existingCourses ?? []).map(c => c.r2_dir as string).filter(Boolean),
-    )
+    const usedDirs = new Set<string>()
+    for (const c of allCourses ?? []) {
+      // New courses: r2_dir column set directly
+      if (c.r2_dir) usedDirs.add(c.r2_dir as string)
+
+      // Old courses (before r2_dir column): extract folder from course_r2_url
+      // e.g. https://bucket.r2.cloudflarestorage.com/film_course → "film_course"
+      if (!c.r2_dir && c.course_r2_url) {
+        try {
+          const folder = new URL(c.course_r2_url as string).pathname
+            .replace(/^\//, '').split('/')[0]
+          if (folder) usedDirs.add(folder)
+        } catch { /* invalid URL — skip */ }
+      }
+    }
 
     // 3. Validate each candidate in parallel
     const candidates = await Promise.all(

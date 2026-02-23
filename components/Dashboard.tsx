@@ -13,6 +13,7 @@ import { EntityReclassifier } from './EntityReclassifier'
 import { RecoveryPanel } from './RecoveryPanel'
 import { RelationshipManager } from './RelationshipManager'
 import { CourseUploader } from './CourseUploader'
+import { CourseEditor } from './CourseEditor'
 import { useToast } from './ToastProvider'
 import clsx from 'clsx'
 
@@ -219,8 +220,10 @@ export function Dashboard() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18 }}
+              className="space-y-4"
             >
               <EntityEditor />
+              <CourseEditor />
             </motion.div>
           )}
           {tab === 'merge' && (

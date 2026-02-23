@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
 interface JobRow {
@@ -73,4 +73,77 @@ export async function GET() {
   }
 
   return NextResponse.json({ jobs: [...groups.values()] })
+}
+
+// POST /api/upload-jobs
+// Body: { courseId: number, lectureNumber: number }
+// Queues a single lecture for transcription. Re-queues failed jobs.
+export async function POST(req: NextRequest) {
+  const body          = await req.json()
+  const courseId      = body.courseId      as number | undefined
+  const lectureNumber = body.lectureNumber as number | undefined
+
+  if (!courseId || !lectureNumber) {
+    return NextResponse.json({ error: 'courseId and lectureNumber required' }, { status: 400 })
+  }
+
+  // Fetch course to get r2_dir
+  const { data: course, error: courseErr } = await supabase
+    .from('courses')
+    .select('r2_dir')
+    .eq('id', courseId)
+    .single()
+
+  if (courseErr || !course?.r2_dir) {
+    return NextResponse.json({ error: 'Course not found or has no r2_dir' }, { status: 404 })
+  }
+
+  // Check for an existing job for this lecture
+  const { data: existing } = await supabase
+    .from('upload_jobs')
+    .select('id, status')
+    .eq('course_id', courseId)
+    .eq('lecture_number', lectureNumber)
+    .maybeSingle()
+
+  interface ExistingJob { id: number; status: string }
+  const existingJob = existing as ExistingJob | null
+
+  if (existingJob && existingJob.status !== 'failed') {
+    return NextResponse.json(
+      { error: `Job already exists (status: ${existingJob.status})` },
+      { status: 409 },
+    )
+  }
+
+  if (existingJob) {
+    // Re-queue a failed job
+    const { error: updateErr } = await supabase
+      .from('upload_jobs')
+      .update({ status: 'pending', retry_count: 0, output: null, completed_at: null })
+      .eq('id', existingJob.id)
+
+    if (updateErr) {
+      return NextResponse.json({ error: updateErr.message }, { status: 500 })
+    }
+    return NextResponse.json({ jobId: existingJob.id })
+  }
+
+  // Insert a new job
+  const { data: job, error: jobErr } = await supabase
+    .from('upload_jobs')
+    .insert({
+      course_id:      courseId,
+      r2_dir:         course.r2_dir,
+      lecture_number: lectureNumber,
+      status:         'pending',
+    })
+    .select('id')
+    .single()
+
+  if (jobErr || !job) {
+    return NextResponse.json({ error: jobErr?.message ?? 'Insert failed' }, { status: 500 })
+  }
+
+  return NextResponse.json({ jobId: (job as { id: number }).id })
 }

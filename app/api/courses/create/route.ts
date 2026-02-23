@@ -81,20 +81,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Insert upload_jobs
-    const jobs = lectureNums.map(n => ({
-      course_id:      courseId,
-      r2_dir:         r2Dir,
-      lecture_number: n,
-      status:         'pending',
-    }))
-
-    const { error: jobsErr } = await supabase.from('upload_jobs').insert(jobs)
-    if (jobsErr) {
-      return NextResponse.json({ error: jobsErr.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ courseId, lectureCount: lectureNums.length })
+    return NextResponse.json({ courseId, r2Dir, lectureCount: lectureNums.length })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
