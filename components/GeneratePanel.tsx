@@ -20,7 +20,7 @@ type GenerateType =
   | 'entity_desc'
   | 'summary_pdf'
 
-interface Course   { id: number; title: string; r2_dir: string | null }
+interface Course   { id: number; title: string }
 interface Lecture  { id: number; title: string; order_in_course: number; course_id: number }
 interface EntityRow{ id: number; name: string }
 
@@ -212,7 +212,7 @@ export function GeneratePanel() {
 
   // ── load courses on mount ─────────────────────────────────────────────────
   useEffect(() => {
-    fetch('/api/courses/managed')
+    fetch('/api/courses')
       .then(r => r.json())
       .then(d => setCourses(d.courses ?? []))
       .catch(console.error)
