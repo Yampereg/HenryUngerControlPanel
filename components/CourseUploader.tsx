@@ -394,6 +394,7 @@ export function CourseUploader() {
                     const sub       = subjectFor(c.subjectId)
                     const total     = dirs.find(d => d.dir === c.r2Dir)?.lectureCount
                     const succeeded = uploadStatus?.succeededPerCourse[c.id] ?? 0
+                    const pct       = total != null && total > 0 ? Math.round((succeeded / total) * 100) : 0
                     const subtitle  = [
                       sub?.nameHe,
                       total != null ? `${succeeded}/${total} uploaded` : undefined,
@@ -410,6 +411,19 @@ export function CourseUploader() {
                           <p className="text-sm text-aura-text truncate">{c.title}</p>
                           {subtitle && (
                             <p className="text-[10px] text-aura-muted">{subtitle}</p>
+                          )}
+                          {total != null && (
+                            <div className="mt-1.5 h-1 w-full bg-white/[0.06] rounded-full overflow-hidden">
+                              <div
+                                className={clsx(
+                                  'h-full rounded-full transition-all duration-500',
+                                  pct === 100
+                                    ? 'bg-aura-success'
+                                    : 'bg-gradient-to-r from-aura-accent to-aura-indigo',
+                                )}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
                           )}
                         </div>
                         <ChevronRight size={13} className="text-aura-muted shrink-0" />

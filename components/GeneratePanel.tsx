@@ -28,13 +28,13 @@ type Phase = 'idle' | 'generating' | 'preview' | 'confirming' | 'done'
 
 const ENTITY_TYPES = [
   'directors','films','writers','books',
-  'painters','paintings','philosophers','themes',
+  'painters','paintings','philosophers',
 ] as const
 type EntityType = typeof ENTITY_TYPES[number]
 
 const ENTITY_LABELS: Record<EntityType, string> = {
   directors: 'Directors', films: 'Films', writers: 'Writers', books: 'Books',
-  painters: 'Painters', paintings: 'Paintings', philosophers: 'Philosophers', themes: 'Themes',
+  painters: 'Painters', paintings: 'Paintings', philosophers: 'Philosophers',
 }
 
 // ---------------------------------------------------------------------------
@@ -107,12 +107,30 @@ function computeDiff(
 }
 
 function EntityDiffView({ diff }: { diff: Record<EntityType, EntityDiff> }) {
-  const hasChanges = ENTITY_TYPES.some(et => diff[et].added.length > 0 || diff[et].removed.length > 0)
-  if (!hasChanges) {
-    return <p className="text-sm text-aura-muted italic">No differences found — extracted list matches current.</p>
+  const totalAdded   = ENTITY_TYPES.reduce((s, et) => s + diff[et].added.length,   0)
+  const totalRemoved = ENTITY_TYPES.reduce((s, et) => s + diff[et].removed.length, 0)
+
+  if (totalAdded === 0 && totalRemoved === 0) {
+    return <p className="text-sm text-aura-muted italic">No differences — extracted list matches current.</p>
   }
+
   return (
     <div className="space-y-3">
+      {/* Summary line */}
+      <div className="flex items-center gap-3 text-xs font-semibold">
+        {totalAdded > 0 && (
+          <span className="flex items-center gap-1 text-aura-success">
+            <Plus size={11} />{totalAdded} new
+          </span>
+        )}
+        {totalRemoved > 0 && (
+          <span className="flex items-center gap-1 text-aura-error">
+            <Minus size={11} />{totalRemoved} removed
+          </span>
+        )}
+      </div>
+
+      {/* Per-type chip rows */}
       {ENTITY_TYPES.map(et => {
         const { added, removed } = diff[et]
         if (!added.length && !removed.length) return null
@@ -120,19 +138,23 @@ function EntityDiffView({ diff }: { diff: Record<EntityType, EntityDiff> }) {
           <div key={et}>
             <p className="text-[10px] uppercase tracking-widest text-aura-muted mb-1.5">
               {ENTITY_LABELS[et]}
+              {added.length   > 0 && <span className="ml-1.5 text-aura-success font-bold">+{added.length}</span>}
+              {removed.length > 0 && <span className="ml-1 text-aura-error font-bold">−{removed.length}</span>}
             </p>
-            <div className="space-y-1">
+            <div className="flex flex-wrap gap-1.5">
               {added.map(n => (
-                <div key={`+${n}`} className="flex items-center gap-1.5 text-sm text-aura-success">
-                  <Plus size={12} className="shrink-0" />
-                  <span>{n}</span>
-                </div>
+                <span key={`+${n}`}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium
+                             bg-aura-success/10 border border-aura-success/25 text-aura-success">
+                  <Plus size={9} className="shrink-0" />{n}
+                </span>
               ))}
               {removed.map(n => (
-                <div key={`-${n}`} className="flex items-center gap-1.5 text-sm text-aura-error">
-                  <Minus size={12} className="shrink-0" />
-                  <span>{n}</span>
-                </div>
+                <span key={`-${n}`}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium
+                             bg-aura-error/10 border border-aura-error/20 text-aura-error/70 line-through">
+                  <Minus size={9} className="shrink-0" />{n}
+                </span>
               ))}
             </div>
           </div>

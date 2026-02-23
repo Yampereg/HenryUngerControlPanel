@@ -20,7 +20,7 @@ export type GenerateType =
 
 const ENTITY_TYPES = [
   'directors','films','writers','books',
-  'painters','paintings','philosophers','themes',
+  'painters','paintings','philosophers',
 ] as const
 
 const JOIN_TABLES: Record<string, { join: string; fk: string; name: string }> = {
@@ -31,7 +31,6 @@ const JOIN_TABLES: Record<string, { join: string; fk: string; name: string }> = 
   painters:     { join: 'lecture_painters',     fk: 'painter_id',     name: 'name'  },
   paintings:    { join: 'lecture_paintings',    fk: 'painting_id',    name: 'title' },
   philosophers: { join: 'lecture_philosophers', fk: 'philosopher_id', name: 'name'  },
-  themes:       { join: 'lecture_themes',       fk: 'theme_id',       name: 'name'  },
 }
 
 const ENTITY_PROMPT_FILES: Record<string, string> = {
@@ -42,7 +41,6 @@ const ENTITY_PROMPT_FILES: Record<string, string> = {
   painters:     'enrich_describe_painter.txt',
   paintings:    'enrich_describe_painting.txt',
   philosophers: 'enrich_describe_philosopher.txt',
-  themes:       'enrich_describe.txt',
 }
 
 // ---------------------------------------------------------------------------
