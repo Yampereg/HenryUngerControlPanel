@@ -84,6 +84,8 @@ export async function POST(req: NextRequest) {
       // Insert new entities + links
       for (const et of ENTITY_TYPES) {
         const cfg = JOIN_TABLES[et]
+        const linkedIds = new Set<number>()  // prevent duplicate junction rows per lecture
+
         for (const relType of ['discussed', 'mentioned'] as const) {
           for (const name of extracted[et]?.[relType] ?? []) {
             if (body.action === 'accept_new_only' && existingNames[et]?.has(name.toLowerCase())) {
@@ -103,6 +105,10 @@ export async function POST(req: NextRequest) {
                 .from(et).insert({ [nameField]: name }).select('id').single()
               entityId = created!.id
             }
+
+            // skip if already linked (entity appears in both discussed + mentioned)
+            if (linkedIds.has(entityId)) continue
+            linkedIds.add(entityId)
 
             // upsert junction row
             await supabase.from(cfg.join).upsert({

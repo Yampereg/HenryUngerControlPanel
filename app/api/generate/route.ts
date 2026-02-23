@@ -57,7 +57,7 @@ function loadPrompt(filename: string): string {
 // ---------------------------------------------------------------------------
 async function callGemini(prompt: string, jsonMode = false): Promise<string> {
   const model = genai.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     generationConfig: {
       temperature: jsonMode ? 0.1 : 0.3,
       maxOutputTokens: jsonMode ? 8000 : 2000,
