@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
               lecture_id: lectureId,
               [cfg.fk]: entityId,
               relationship_type: relType,
-            }, { onConflict: `lecture_id,${cfg.fk}` })
+            }, { onConflict: `lecture_id,${cfg.fk}`, ignoreDuplicates: true })
           }
         }
       }

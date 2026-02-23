@@ -8,7 +8,11 @@ export function middleware(request: NextRequest) {
   // If no token is configured, the panel is open (trusted network / dev)
   if (!PANEL_TOKEN) return NextResponse.next()
 
-  // 1. Valid cookie already present → pass through
+  // 1. Server-to-server calls (Transcriber daemon) use x-panel-token header
+  const headerToken = request.headers.get('x-panel-token')
+  if (headerToken && headerToken === PANEL_TOKEN) return NextResponse.next()
+
+  // 2. Valid cookie already present → pass through
   const cookieVal = request.cookies.get(COOKIE_NAME)?.value
   if (cookieVal === PANEL_TOKEN) return NextResponse.next()
 

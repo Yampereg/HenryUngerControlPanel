@@ -6,6 +6,8 @@ interface JobRow {
   course_id:      number
   status:         string
   lecture_number: number
+  completed_at:   string | null
+  created_at:     string | null
 }
 
 interface CourseRow {
@@ -18,7 +20,7 @@ interface CourseRow {
 export async function GET() {
   const { data: jobRows, error: jobErr } = await supabase
     .from('upload_jobs')
-    .select('id, course_id, status, lecture_number')
+    .select('id, course_id, status, lecture_number, completed_at, created_at')
     .order('created_at', { ascending: false })
 
   if (jobErr) {
@@ -28,7 +30,7 @@ export async function GET() {
   const rows = (jobRows ?? []) as JobRow[]
 
   if (rows.length === 0) {
-    return NextResponse.json({ jobs: [] })
+    return NextResponse.json({ jobs: [], active: [], lastCompleted: null, succeededPerCourse: {} })
   }
 
   // Fetch course titles
@@ -72,7 +74,39 @@ export async function GET() {
     else if (row.status === 'pending')   g.pending++
   }
 
-  return NextResponse.json({ jobs: [...groups.values()] })
+  // Active jobs (running or pending), preserve created_at order (desc already)
+  const active = rows
+    .filter(r => r.status === 'running' || r.status === 'pending')
+    .map(r => ({
+      courseId:      r.course_id,
+      courseTitle:   courseMap.get(r.course_id) ?? `Course ${r.course_id}`,
+      lectureNumber: r.lecture_number,
+      status:        r.status,
+    }))
+
+  // Most recent terminal job
+  const terminalRows = rows
+    .filter(r => r.status === 'succeeded' || r.status === 'failed')
+    .sort((a, b) =>
+      (b.completed_at ?? b.created_at ?? '').localeCompare(a.completed_at ?? a.created_at ?? ''),
+    )
+  const lastCompleted = terminalRows.length > 0 ? {
+    courseId:      terminalRows[0].course_id,
+    courseTitle:   courseMap.get(terminalRows[0].course_id) ?? `Course ${terminalRows[0].course_id}`,
+    lectureNumber: terminalRows[0].lecture_number,
+    status:        terminalRows[0].status,
+    completedAt:   terminalRows[0].completed_at ?? terminalRows[0].created_at,
+  } : null
+
+  // Succeeded count per course (for X/Y progress in home view)
+  const succeededPerCourse: Record<number, number> = {}
+  for (const r of rows) {
+    if (r.status === 'succeeded') {
+      succeededPerCourse[r.course_id] = (succeededPerCourse[r.course_id] ?? 0) + 1
+    }
+  }
+
+  return NextResponse.json({ jobs: [...groups.values()], active, lastCompleted, succeededPerCourse })
 }
 
 // POST /api/upload-jobs

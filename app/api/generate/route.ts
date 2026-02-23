@@ -132,6 +132,12 @@ export async function POST(req: NextRequest) {
       courseId?: number
       entityType?: string
       entityId?: number
+      note?: string
+    }
+
+    function appendNote(prompt: string): string {
+      if (!body.note?.trim()) return prompt
+      return `${prompt}\n\nAdditional note: ${body.note.trim()}`
     }
 
     // ── summary_pdf — queue to regen_jobs ─────────────────────────────────
@@ -158,7 +164,7 @@ export async function POST(req: NextRequest) {
       if (!course?.r2_dir) return NextResponse.json({ error: 'r2_dir not set on course' }, { status: 400 })
 
       const transcript = await getR2Text(`${course.r2_dir}/${lec.order_in_course}/transcript.txt`)
-      const prompt = loadPrompt('title_synopsis.txt').replace('{transcript}', transcript.slice(0, 15000))
+      const prompt = appendNote(loadPrompt('title_synopsis.txt').replace('{transcript}', transcript.slice(0, 15000)))
       const text   = await callGemini(prompt)
 
       let title = '', synopsis = ''
@@ -193,9 +199,11 @@ export async function POST(req: NextRequest) {
         .map((l, i) => `Lecture ${i + 1}: ${l.title}\n${l.synopsis}`)
         .join('\n\n')
 
-      const prompt = loadPrompt('course_synopsis.txt')
-        .replace('{title}', course.title)
-        .replace('{lectures}', lecturesText)
+      const prompt = appendNote(
+        loadPrompt('course_synopsis.txt')
+          .replace('{title}', course.title)
+          .replace('{lectures}', lecturesText)
+      )
       const after = await callGemini(prompt)
 
       return NextResponse.json({ type: 'course_synopsis', courseId: body.courseId, before: course.description ?? '', after })
@@ -213,7 +221,7 @@ export async function POST(req: NextRequest) {
       if (!course?.r2_dir) return NextResponse.json({ error: 'r2_dir not set on course' }, { status: 400 })
 
       const transcript = await getR2Text(`${course.r2_dir}/${lec.order_in_course}/transcript.txt`)
-      const prompt     = loadPrompt('entities_all.txt').replace('{transcript}', transcript)
+      const prompt     = appendNote(loadPrompt('entities_all.txt').replace('{transcript}', transcript))
       const runs       = await callGemini3x(prompt)
       const extracted  = mergeEntityRuns(runs)
       const current    = await fetchCurrentEntities(body.lectureId)
@@ -238,11 +246,13 @@ export async function POST(req: NextRequest) {
       const entityKey  = body.entityType.replace(/s$/, '')
       const promptFile = ENTITY_PROMPT_FILES[body.entityType] ?? 'enrich_describe.txt'
       const template   = loadPrompt(promptFile)
-      const prompt     = template
-        .replace(/\{display\}/g, display)
-        .replace(/\{label\}/g, entityKey)
-        .replace(/\{name\}/g, name)
-        .replace(/\{hebrew_name\}/g, hebrewName || name)
+      const prompt     = appendNote(
+        template
+          .replace(/\{display\}/g, display)
+          .replace(/\{label\}/g, entityKey)
+          .replace(/\{name\}/g, name)
+          .replace(/\{hebrew_name\}/g, hebrewName || name)
+      )
       const after = await callGemini(prompt)
 
       return NextResponse.json({

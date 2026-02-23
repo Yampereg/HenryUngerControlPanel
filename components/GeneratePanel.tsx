@@ -170,6 +170,8 @@ export function GeneratePanel() {
   const [entities,   setEntities]   = useState<EntityRow[]>([])
   const [entityId,   setEntityId]   = useState('')
 
+  const [note,    setNote]    = useState('')
+
   // ── result state ─────────────────────────────────────────────────────────
   const [phase,   setPhase]   = useState<Phase>('idle')
   const [result,  setResult]  = useState<Record<string, unknown> | null>(null)
@@ -251,6 +253,7 @@ export function GeneratePanel() {
       if (courseId && !lectureId) body.courseId = Number(courseId)
       if (courseId && needsCourse(genType) && !needsLecture(genType)) body.courseId = Number(courseId)
       if (needsEntity(genType)) { body.entityType = entityType; body.entityId = Number(entityId) }
+      if (note.trim()) body.note = note.trim()
 
       const res = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json()
@@ -367,6 +370,24 @@ export function GeneratePanel() {
             </Select>
           </>
         )}
+
+        {/* Note textarea */}
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-aura-muted mb-1.5">
+            Note (optional)
+          </p>
+          <textarea
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder="Add extra context or instructions for this generation…"
+            rows={2}
+            className={clsx(
+              'w-full px-3 py-2 rounded-xl bg-black/30 border border-white/[0.08] resize-none',
+              'text-sm text-aura-text placeholder-aura-muted/50',
+              'focus:outline-none focus:border-aura-accent/40 transition-colors',
+            )}
+          />
+        </div>
 
         {/* Generate button */}
         <button

@@ -28,8 +28,29 @@ interface LectureItem   {
   status:        'none' | 'pending' | 'running' | 'succeeded' | 'failed'
   jobId:         number | null
 }
+interface ActiveJob     { courseId: number; courseTitle: string; lectureNumber: number; status: string }
+interface LastCompleted { courseId: number; courseTitle: string; lectureNumber: number; status: string; completedAt: string | null }
+interface UploadStatusData {
+  active:             ActiveJob[]
+  lastCompleted:      LastCompleted | null
+  succeededPerCourse: Record<number, number>
+}
 
 type Phase = 'loading' | 'home' | 'form' | 'manage'
+
+// ---------------------------------------------------------------------------
+// Relative time helper
+// ---------------------------------------------------------------------------
+function formatRelative(iso: string | null): string {
+  if (!iso) return ''
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return new Date(iso).toLocaleDateString()
+}
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -69,6 +90,7 @@ export function CourseUploader() {
   const [imagePreview,    setImagePreview]    = useState<string | null>(null)
   const [submitting,      setSubmitting]      = useState(false)
   const [queuingLecture,  setQueuingLecture]  = useState<number | null>(null)
+  const [uploadStatus,    setUploadStatus]    = useState<UploadStatusData | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -78,14 +100,16 @@ export function CourseUploader() {
   const loadHome = useCallback(async () => {
     setPhase('loading')
     try {
-      const [dirsRes, subjectsRes, managedRes] = await Promise.all([
+      const [dirsRes, subjectsRes, managedRes, jobsRes] = await Promise.all([
         fetch('/api/r2-dirs'),
         fetch('/api/subjects'),
         fetch('/api/courses/managed'),
+        fetch('/api/upload-jobs'),
       ])
-      const dirsData    = await dirsRes.json()
+      const dirsData     = await dirsRes.json()
       const subjectsData = await subjectsRes.json()
       const managedData  = await managedRes.json()
+      const jobsData     = await jobsRes.json()
 
       setDirs(dirsData.dirs ?? [])
       setSubjects(
@@ -98,6 +122,11 @@ export function CourseUploader() {
           id: c.id, title: c.title, r2Dir: c.r2_dir, subjectId: c.subject_id,
         })),
       )
+      setUploadStatus({
+        active:             jobsData.active ?? [],
+        lastCompleted:      jobsData.lastCompleted ?? null,
+        succeededPerCourse: jobsData.succeededPerCourse ?? {},
+      })
     } catch {
       toastError('Load failed', 'Could not load course data')
     }
@@ -300,6 +329,58 @@ export function CourseUploader() {
               )}
             </div>
 
+            {/* Upload status widget */}
+            {uploadStatus && (uploadStatus.active.length > 0 || uploadStatus.lastCompleted) && (
+              <div className="glass rounded-2xl border border-white/[0.07] overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/[0.05]">
+                  <p className="text-xs font-semibold text-aura-muted uppercase tracking-widest">
+                    {uploadStatus.active.length > 0 ? 'Uploading Now' : 'Last Upload'}
+                  </p>
+                </div>
+                {uploadStatus.active.length > 0 ? (
+                  <div className="divide-y divide-white/[0.03]">
+                    {uploadStatus.active.map((j, i) => (
+                      <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                        <Loader2
+                          size={12}
+                          className={clsx(
+                            'shrink-0',
+                            j.status === 'running' ? 'animate-spin text-aura-accent' : 'text-aura-muted',
+                          )}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-aura-text truncate">{j.courseTitle}</p>
+                          <p className="text-[10px] text-aura-muted">
+                            Lecture {j.lectureNumber} · {j.status === 'running' ? 'in progress' : 'queued'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : uploadStatus.lastCompleted ? (
+                  <div className="flex items-center gap-3 px-4 py-2.5">
+                    {uploadStatus.lastCompleted.status === 'succeeded'
+                      ? <Check size={12} className="text-aura-success shrink-0" />
+                      : <X    size={12} className="text-aura-error shrink-0" />}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-aura-text truncate">{uploadStatus.lastCompleted.courseTitle}</p>
+                      <p className="text-[10px] text-aura-muted">
+                        Lecture {uploadStatus.lastCompleted.lectureNumber} · {formatRelative(uploadStatus.lastCompleted.completedAt)}
+                      </p>
+                    </div>
+                    <span className={clsx(
+                      'text-[10px] font-medium px-1.5 py-0.5 rounded-full border shrink-0',
+                      uploadStatus.lastCompleted.status === 'succeeded'
+                        ? 'text-aura-success bg-aura-success/10 border-aura-success/20'
+                        : 'text-aura-error bg-aura-error/10 border-aura-error/20',
+                    )}>
+                      {uploadStatus.lastCompleted.status === 'succeeded' ? 'done' : 'failed'}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
             {/* Managed courses */}
             {managedCourses.length > 0 && (
               <div className="glass rounded-2xl border border-white/[0.07] overflow-hidden">
@@ -310,7 +391,13 @@ export function CourseUploader() {
                 </div>
                 <div className="divide-y divide-white/[0.03]">
                   {managedCourses.map(c => {
-                    const sub = subjectFor(c.subjectId)
+                    const sub       = subjectFor(c.subjectId)
+                    const total     = dirs.find(d => d.dir === c.r2Dir)?.lectureCount
+                    const succeeded = uploadStatus?.succeededPerCourse[c.id] ?? 0
+                    const subtitle  = [
+                      sub?.nameHe,
+                      total != null ? `${succeeded}/${total} uploaded` : undefined,
+                    ].filter(Boolean).join(' · ')
                     return (
                       <button
                         key={c.id}
@@ -321,8 +408,8 @@ export function CourseUploader() {
                         <BookOpen size={13} className="text-aura-muted shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm text-aura-text truncate">{c.title}</p>
-                          {sub && (
-                            <p className="text-[10px] text-aura-muted">{sub.nameHe}</p>
+                          {subtitle && (
+                            <p className="text-[10px] text-aura-muted">{subtitle}</p>
                           )}
                         </div>
                         <ChevronRight size={13} className="text-aura-muted shrink-0" />
