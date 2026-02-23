@@ -33,12 +33,12 @@ export async function GET(req: NextRequest) {
   // Get existing upload_jobs for this course
   const { data: jobs } = await supabase
     .from('upload_jobs')
-    .select('id, lecture_number, status')
+    .select('id, lecture_number, status, output')
     .eq('course_id', courseId)
 
-  interface JobRow { id: number; lecture_number: number; status: string }
-  const jobMap = new Map<number, { id: number; status: string }>(
-    ((jobs ?? []) as JobRow[]).map(j => [j.lecture_number, { id: j.id, status: j.status }]),
+  interface JobRow { id: number; lecture_number: number; status: string; output: string | null }
+  const jobMap = new Map<number, { id: number; status: string; output: string | null }>(
+    ((jobs ?? []) as JobRow[]).map(j => [j.lecture_number, { id: j.id, status: j.status, output: j.output }]),
   )
 
   const lectures = lectureNums.map(n => {
@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
       lectureNumber: n,
       status:        job ? job.status : 'none',
       jobId:         job ? job.id : null,
+      output:        job?.output ?? null,
     }
   })
 
