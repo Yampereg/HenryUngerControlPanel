@@ -1,0 +1,6 @@
+Write a short description of the book {display} in Hebrew only — no English words.
+
+Write exactly 2-3 sentences: author, year and genre, main themes, and its place in literary history.
+Third person, encyclopedic style, no headings, prose only.
+
+Return only the Hebrew description.

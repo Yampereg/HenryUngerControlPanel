@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { supabase } from '@/lib/supabase'
 import { getR2Text } from '@/lib/r2'
+import fs from 'fs'
+import path from 'path'
 
 const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '')
 
@@ -22,74 +24,33 @@ const ENTITY_TYPES = [
 ] as const
 
 const JOIN_TABLES: Record<string, { join: string; fk: string; name: string }> = {
-  directors:    { join: 'lecture_directors',    fk: 'director_id',   name: 'name'  },
-  films:        { join: 'lecture_films',        fk: 'film_id',       name: 'title' },
-  writers:      { join: 'lecture_writers',      fk: 'writer_id',     name: 'name'  },
-  books:        { join: 'lecture_books',        fk: 'book_id',       name: 'title' },
-  painters:     { join: 'lecture_painters',     fk: 'painter_id',    name: 'name'  },
-  paintings:    { join: 'lecture_paintings',    fk: 'painting_id',   name: 'title' },
-  philosophers: { join: 'lecture_philosophers', fk: 'philosopher_id',name: 'name'  },
-  themes:       { join: 'lecture_themes',       fk: 'theme_id',      name: 'name'  },
+  directors:    { join: 'lecture_directors',    fk: 'director_id',    name: 'name'  },
+  films:        { join: 'lecture_films',        fk: 'film_id',        name: 'title' },
+  writers:      { join: 'lecture_writers',      fk: 'writer_id',      name: 'name'  },
+  books:        { join: 'lecture_books',        fk: 'book_id',        name: 'title' },
+  painters:     { join: 'lecture_painters',     fk: 'painter_id',     name: 'name'  },
+  paintings:    { join: 'lecture_paintings',    fk: 'painting_id',    name: 'title' },
+  philosophers: { join: 'lecture_philosophers', fk: 'philosopher_id', name: 'name'  },
+  themes:       { join: 'lecture_themes',       fk: 'theme_id',       name: 'name'  },
+}
+
+const ENTITY_PROMPT_FILES: Record<string, string> = {
+  directors:    'enrich_describe_director.txt',
+  films:        'enrich_describe_film.txt',
+  writers:      'enrich_describe_writer.txt',
+  books:        'enrich_describe_book.txt',
+  painters:     'enrich_describe_painter.txt',
+  paintings:    'enrich_describe_painting.txt',
+  philosophers: 'enrich_describe_philosopher.txt',
+  themes:       'enrich_describe.txt',
 }
 
 // ---------------------------------------------------------------------------
-// Prompts (inline — keep in sync with Transcriber/prompts/)
+// Prompt loading
 // ---------------------------------------------------------------------------
-const TITLE_SYNOPSIS_PROMPT = `Extract the title and synopsis from this Hebrew lecture transcript.
-
-TITLE format: "Main Subject: Specific Focus" in Hebrew
-SYNOPSIS: 1-2 sentences in Hebrew summarising the lecture content.
-
-Return exactly:
-TITLE: <title>
-SYNOPSIS: <synopsis>
-
-Transcript:
-{transcript}`
-
-const COURSE_SYNOPSIS_PROMPT = `Based on these lecture summaries from the course "{title}", write a 3-4 sentence course description in Hebrew that captures the overall themes and scope of the course.
-
-{lectures}
-
-Return only the course description, no labels or prefixes.`
-
-const ENTITIES_ALL_PROMPT = `Extract ALL entities mentioned in this Hebrew lecture transcript.
-Return a JSON object with exactly the following structure — no extra keys, no markdown fences.
-
-Rules per category:
-- directors:    Film directors explicitly named (English names only, not writers/philosophers)
-- films:        Film titles explicitly mentioned (English titles only, real films)
-- writers:      Literary authors/novelists/poets/playwrights explicitly named (English)
-- books:        Book/literary work titles explicitly mentioned (English or Hebrew)
-- painters:     Visual artists (painters, sculptors) explicitly named (English or Hebrew)
-- paintings:    Specific artwork titles explicitly mentioned (Hebrew preferred)
-- philosophers: Philosophers and major intellectual figures explicitly named (English)
-- themes:       Exactly 10 broad academic/philosophical themes from the lecture (Hebrew)
-
-For each category use two lists:
-  "discussed" — main subjects of the lecture
-  "mentioned" — referenced briefly or in passing
-
-CRITICAL: Only include entities EXPLICITLY NAMED in the transcript. No guessing or inference.
-Names may appear in Hebrew transliteration — output in the standard English form.
-
-Return ONLY valid JSON, nothing else:
-{"directors":{"discussed":[],"mentioned":[]},"films":{"discussed":[],"mentioned":[]},"writers":{"discussed":[],"mentioned":[]},"books":{"discussed":[],"mentioned":[]},"painters":{"discussed":[],"mentioned":[]},"paintings":{"discussed":[],"mentioned":[]},"philosophers":{"discussed":[],"mentioned":[]},"themes":{"discussed":[],"mentioned":[]}}
-
-Transcript:
-{transcript}`
-
-const ENTITY_DESC_PROMPTS: Record<string, string> = {
-  directors:   'כתוב 2-3 משפטים בעברית על הבמאי/הבמאית {display}. תאר את סגנון הבימוי, הנושאים המרכזיים ביצירתו/ה, ומה הופך אותו/ה לדמות משמעותית בקולנוע.',
-  writers:     'כתוב 2-3 משפטים בעברית על הסופר/הסופרת {display}. תאר את סגנון הכתיבה, הנושאים המרכזיים ביצירתו/ה, ומה הופך אותו/ה לדמות משמעותית בספרות.',
-  painters:    'כתוב 2-3 משפטים בעברית על האמן/האמנית {display}. תאר את סגנון הציור, הנושאים המרכזיים ביצירתו/ה, ומה הופך אותו/ה לדמות משמעותית באמנות.',
-  philosophers:'כתוב 2-3 משפטים בעברית על הפילוסוף/הפילוסופית {display}. תאר את עיקרי הגותו/ה, ומה הופך אותו/ה לדמות משמעותית בפילוסופיה.',
-  films:       'כתוב 2-3 משפטים בעברית על הסרט {display}. תאר את עלילת הסרט, הנושאים המרכזיים, ומה הופך אותו לסרט משמעותי.',
-  books:       'כתוב 2-3 משפטים בעברית על הספר {display}. תאר את עלילת הספר, הנושאים המרכזיים, ומה הופך אותו לספר משמעותי.',
-  paintings:   'כתוב 2-3 משפטים בעברית על היצירה {display}. תאר את הטכניקה, הנושאים המרכזיים, ומה הופך אותה ליצירה משמעותית.',
-  philosophers:'כתוב 2-3 משפטים בעברית על הפילוסוף/הפילוסופית {display}. תאר את עיקרי הגותו/ה, ומה הופך אותו/ה לדמות משמעותית בפילוסופיה.',
+function loadPrompt(filename: string): string {
+  return fs.readFileSync(path.join(process.cwd(), 'prompts', filename), 'utf-8')
 }
-const DEFAULT_ENTITY_DESC = 'כתוב 2-3 משפטים בעברית על {display}.'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -196,7 +157,7 @@ export async function POST(req: NextRequest) {
       if (!course?.r2_dir) return NextResponse.json({ error: 'r2_dir not set on course' }, { status: 400 })
 
       const transcript = await getR2Text(`${course.r2_dir}/${lec.order_in_course}/transcript.txt`)
-      const prompt = TITLE_SYNOPSIS_PROMPT.replace('{transcript}', transcript.slice(0, 15000))
+      const prompt = loadPrompt('title_synopsis.txt').replace('{transcript}', transcript.slice(0, 15000))
       const text   = await callGemini(prompt)
 
       let title = '', synopsis = ''
@@ -204,9 +165,9 @@ export async function POST(req: NextRequest) {
       let inSynopsis = false
       for (const line of text.split('\n')) {
         const stripped = line.trim()
-        if (stripped.startsWith('TITLE:'))    { title = stripped.slice(6).trim(); inSynopsis = false }
+        if (stripped.startsWith('TITLE:'))         { title = stripped.slice(6).trim(); inSynopsis = false }
         else if (stripped.startsWith('SYNOPSIS:')) { const f = stripped.slice(9).trim(); if (f) synopsisLines.push(f); inSynopsis = true }
-        else if (inSynopsis && stripped)     { synopsisLines.push(stripped) }
+        else if (inSynopsis && stripped)           { synopsisLines.push(stripped) }
       }
       synopsis = synopsisLines.join(' ').trim()
 
@@ -231,7 +192,7 @@ export async function POST(req: NextRequest) {
         .map((l, i) => `Lecture ${i + 1}: ${l.title}\n${l.synopsis}`)
         .join('\n\n')
 
-      const prompt = COURSE_SYNOPSIS_PROMPT
+      const prompt = loadPrompt('course_synopsis.txt')
         .replace('{title}', course.title)
         .replace('{lectures}', lecturesText)
       const after = await callGemini(prompt)
@@ -251,7 +212,7 @@ export async function POST(req: NextRequest) {
       if (!course?.r2_dir) return NextResponse.json({ error: 'r2_dir not set on course' }, { status: 400 })
 
       const transcript = await getR2Text(`${course.r2_dir}/${lec.order_in_course}/transcript.txt`)
-      const prompt     = ENTITIES_ALL_PROMPT.replace('{transcript}', transcript)
+      const prompt     = loadPrompt('entities_all.txt').replace('{transcript}', transcript)
       const runs       = await callGemini3x(prompt)
       const extracted  = mergeEntityRuns(runs)
       const current    = await fetchCurrentEntities(body.lectureId)
@@ -264,18 +225,24 @@ export async function POST(req: NextRequest) {
       if (!body.entityType || !body.entityId) {
         return NextResponse.json({ error: 'entityType and entityId required' }, { status: 400 })
       }
-      const nameField = ['films','books','paintings'].includes(body.entityType) ? 'title' : 'name'
+      const nameField  = ['films','books','paintings'].includes(body.entityType) ? 'title' : 'name'
       const { data: row } = await supabase
         .from(body.entityType).select(`id,${nameField},hebrew_name,description`)
         .eq('id', body.entityId).single()
       if (!row) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
 
-      const name        = (row as Record<string,string>)[nameField] ?? ''
-      const hebrewName  = (row as Record<string,string>).hebrew_name ?? ''
-      const display     = hebrewName ? `${hebrewName} (${name})` : name
-      const template    = ENTITY_DESC_PROMPTS[body.entityType] ?? DEFAULT_ENTITY_DESC
-      const prompt      = template.replace(/\{display\}/g, display).replace(/\{name\}/g, name)
-      const after       = await callGemini(prompt)
+      const name       = (row as Record<string,string>)[nameField] ?? ''
+      const hebrewName = (row as Record<string,string>).hebrew_name ?? ''
+      const display    = hebrewName ? `${hebrewName} (${name})` : name
+      const entityKey  = body.entityType.replace(/s$/, '')
+      const promptFile = ENTITY_PROMPT_FILES[body.entityType] ?? 'enrich_describe.txt'
+      const template   = loadPrompt(promptFile)
+      const prompt     = template
+        .replace(/\{display\}/g, display)
+        .replace(/\{label\}/g, entityKey)
+        .replace(/\{name\}/g, name)
+        .replace(/\{hebrew_name\}/g, hebrewName || name)
+      const after = await callGemini(prompt)
 
       return NextResponse.json({
         type: 'entity_desc', entityType: body.entityType, entityId: body.entityId,

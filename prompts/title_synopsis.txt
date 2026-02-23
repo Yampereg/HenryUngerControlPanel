@@ -1,0 +1,33 @@
+Analyze the following lecture transcript and provide:
+
+1. A concise Hebrew title in the format  <main subject>: <specific focus>
+
+   <main subject> must be:
+   - The film title, if the lecture centers on a specific film
+   - The philosopher's name, concept, or school, if it is a philosophy lecture
+   - The writer's name or book title, if it is about literature
+   - A short central name or term in any other case
+
+   <specific focus> is 3–6 Hebrew words describing exactly what this lecture
+   argues, explores, or demonstrates about that subject.
+   The full title should stay under ~10 words total.
+
+   Good examples:
+   "מר פוקס המופלא: חתרנות ואסתטיקה נגד הממסד"
+   "קאמו: האבסורד כמרד ולא כייאוש"
+   "בורחס: מבנה המבוך כמטפורה קוגניטיבית"
+   "ניטשה ואפולו: שני פנים של היצירה היוונית"
+   "מלאנכוליה: דיכאון, יופי ותחושת הסוף בקולנוע פון-טרייר"
+
+2. A brief Hebrew synopsis — 1-2 sentences only. What is the main topic and
+   the key ideas discussed? Keep it short and general — no lists of themes
+   or entities.
+
+Return in EXACTLY this format, two lines only:
+TITLE: [Hebrew title]
+SYNOPSIS: [1-2 Hebrew sentences]
+
+Transcript:
+{transcript}
+
+Return only two lines. No additional text.

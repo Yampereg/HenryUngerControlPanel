@@ -1,0 +1,35 @@
+Extract ALL entities mentioned in this Hebrew lecture transcript.
+Return a JSON object with exactly the following structure — no extra keys, no markdown fences.
+
+Rules per category:
+- directors:    Film directors explicitly named (English names only, not writers/philosophers)
+- films:        Film titles explicitly mentioned (English titles only, real films)
+- writers:      Literary authors/novelists/poets/playwrights explicitly named (English)
+- books:        Book/literary work titles explicitly mentioned (English or Hebrew)
+- painters:     Visual artists (painters, sculptors) explicitly named (English or Hebrew)
+- paintings:    Specific artwork titles explicitly mentioned (Hebrew preferred)
+- philosophers: Philosophers and major intellectual figures explicitly named (English)
+- themes:       Exactly 10 broad academic/philosophical themes from the lecture (Hebrew)
+
+For each category use two lists:
+  "discussed" — main subjects of the lecture
+  "mentioned" — referenced briefly or in passing
+
+CRITICAL: Only include entities EXPLICITLY NAMED in the transcript. No guessing or inference.
+Names may appear in Hebrew transliteration — output in the standard English form.
+
+Return ONLY valid JSON, nothing else:
+
+{
+  "directors":    {"discussed": [], "mentioned": []},
+  "films":        {"discussed": [], "mentioned": []},
+  "writers":      {"discussed": [], "mentioned": []},
+  "books":        {"discussed": [], "mentioned": []},
+  "painters":     {"discussed": [], "mentioned": []},
+  "paintings":    {"discussed": [], "mentioned": []},
+  "philosophers": {"discussed": [], "mentioned": []},
+  "themes":       {"discussed": [], "mentioned": []}
+}
+
+Transcript:
+{transcript}

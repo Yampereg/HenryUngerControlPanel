@@ -1,0 +1,6 @@
+Write a short description of director {display} in Hebrew only — no English words.
+
+Write exactly 2-3 sentences: who they are and what country they are from, their cinematic style, and their place in film history.
+Third person, encyclopedic style, no headings, prose only.
+
+Return only the Hebrew description.

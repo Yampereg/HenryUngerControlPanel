@@ -1,0 +1,7 @@
+Write a short, accurate 3-sentence description of {label} "{display}" in Hebrew.
+
+Sentence 1: Key facts — who, when, main characteristics
+Sentence 2: Key works or achievements
+Sentence 3: Cultural influence and significance
+
+Return only three sentences in Hebrew, no headings, no explanations.

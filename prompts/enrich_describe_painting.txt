@@ -1,0 +1,6 @@
+Write a short description of the painting {display} in Hebrew only — no English words.
+
+Write exactly 2-3 sentences: the painter, the year it was created and what is depicted, and its significance in art history.
+Third person, encyclopedic style, no headings, prose only.
+
+Return only the Hebrew description.

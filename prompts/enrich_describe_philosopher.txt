@@ -1,0 +1,6 @@
+Write a short description of the thinker/intellectual {display} in Hebrew only — no English words.
+
+Write exactly 2-3 sentences: who they are, their field and central ideas, and their influence on academia and culture.
+Third person, encyclopedic style, no headings, prose only.
+
+Return only the Hebrew description.

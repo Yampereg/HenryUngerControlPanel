@@ -1,0 +1,6 @@
+Write a short description of the writer {display} in Hebrew only — no English words.
+
+Write exactly 2-3 sentences: who they are, what country and era they are from, their literary style, and their contribution to world literature.
+Third person, encyclopedic style, no headings, prose only.
+
+Return only the Hebrew description.

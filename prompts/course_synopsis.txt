@@ -1,0 +1,5 @@
+Based on the following lecture summaries from the course "{title}", write a 3-4 sentence course description in Hebrew that captures the overall themes, scope, and intellectual approach of the course.
+
+{lectures}
+
+Return only the course description in Hebrew, no labels or prefixes.

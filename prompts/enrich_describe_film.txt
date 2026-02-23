@@ -1,0 +1,6 @@
+Write a short description of the film {display} in Hebrew only — no English words.
+
+Write exactly 2-3 sentences: basic facts (year, director, country), main themes, and its place in film history.
+Third person, encyclopedic style, no headings, prose only.
+
+Return only the Hebrew description.
