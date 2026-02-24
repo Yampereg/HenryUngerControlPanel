@@ -31,39 +31,23 @@ export async function PATCH(req: NextRequest) {
   const { lectureId, date, places, years } = body
   if (!lectureId) return NextResponse.json({ error: 'lectureId required' }, { status: 400 })
 
-  const ops: Promise<unknown>[] = []
-
-  // Update date on lectures table
   if (date !== undefined) {
-    ops.push(
-      supabase.from('lectures')
-        .update({ date: date || null })
-        .eq('id', lectureId),
-    )
+    await supabase.from('lectures').update({ date: date || null }).eq('id', lectureId)
   }
 
-  // Replace all places for this lecture
   if (places !== undefined) {
-    ops.push(
-      supabase.from('lecture_places').delete().eq('lecture_id', lectureId).then(() =>
-        places.length > 0
-          ? supabase.from('lecture_places').insert(places.map(p => ({ lecture_id: lectureId, place: p })))
-          : Promise.resolve(),
-      ),
-    )
+    await supabase.from('lecture_places').delete().eq('lecture_id', lectureId)
+    if (places.length > 0) {
+      await supabase.from('lecture_places').insert(places.map(p => ({ lecture_id: lectureId, place: p })))
+    }
   }
 
-  // Replace all years for this lecture
   if (years !== undefined) {
-    ops.push(
-      supabase.from('lecture_years').delete().eq('lecture_id', lectureId).then(() =>
-        years.length > 0
-          ? supabase.from('lecture_years').insert(years.map(y => ({ lecture_id: lectureId, year: y })))
-          : Promise.resolve(),
-      ),
-    )
+    await supabase.from('lecture_years').delete().eq('lecture_id', lectureId)
+    if (years.length > 0) {
+      await supabase.from('lecture_years').insert(years.map(y => ({ lecture_id: lectureId, year: y })))
+    }
   }
 
-  await Promise.all(ops)
   return NextResponse.json({ ok: true })
 }
