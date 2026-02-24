@@ -66,33 +66,83 @@ async function callGemini(prompt: string, jsonMode = false): Promise<string> {
   return result.response.text().trim()
 }
 
-async function callGemini3x(prompt: string): Promise<object[]> {
-  const results: object[] = []
-  for (let i = 0; i < 3; i++) {
-    try {
-      const text = await callGemini(prompt, true)
-      const cleaned = text.replace(/^```json\s*/m, '').replace(/^```\s*$/m, '').trim()
-      results.push(JSON.parse(cleaned))
-    } catch {
-      results.push({})
+// Parse the plain-text DISCUSSED/MENTIONED format used by per-entity prompts.
+// Matches the Transcriber's MetadataExtractor._parse_discussed_mentioned().
+function parsePlainTextEntityResult(text: string): { discussed: string[]; mentioned: string[] } {
+  const discussed: string[] = []
+  const mentioned: string[] = []
+  let current: 'discussed' | 'mentioned' | null = null
+
+  for (const rawLine of text.split('\n')) {
+    const stripped = rawLine.trim()
+    if (!stripped) continue
+    const up = stripped.toUpperCase()
+
+    let raw: string
+    if (up.includes('DISCUSSED:')) {
+      current = 'discussed'
+      raw = stripped.slice(up.indexOf('DISCUSSED:') + 'DISCUSSED:'.length).trim()
+    } else if (up.includes('MENTIONED:')) {
+      current = 'mentioned'
+      raw = stripped.slice(up.indexOf('MENTIONED:') + 'MENTIONED:'.length).trim()
+    } else {
+      raw = stripped
     }
+
+    if (!current || !raw) continue
+    raw = raw.replace(/^[-•*]+/, '').replace(/^\d+[.)]\s*/, '').trim()
+    if (!raw || raw.toLowerCase() === 'none' || raw === 'אין') continue
+
+    const items = raw.split(',')
+      .map(x => x.replace(/^[-•*]+/, '').replace(/^\d+[.)]\s*/, '').trim())
+      .filter(x => x && x.toLowerCase() !== 'none')
+
+    if (current === 'discussed') discussed.push(...items)
+    else mentioned.push(...items)
   }
-  return results
+
+  // Deduplicate preserving order
+  const dedup = (arr: string[]) => arr.filter((v, i, a) => a.findIndex(x => x.toLowerCase() === v.toLowerCase()) === i)
+  return { discussed: dedup(discussed), mentioned: dedup(mentioned) }
 }
 
-function mergeEntityRuns(runs: object[]): Record<string, { discussed: string[]; mentioned: string[] }> {
+// Run entity extraction using per-entity prompts (same as Transcriber).
+// 3 rounds × 7 entity types in parallel, then merge.
+async function extractEntitiesWithPerEntityPrompts(
+  transcript: string,
+  appendNote: (p: string) => string,
+): Promise<Record<string, { discussed: string[]; mentioned: string[] }>> {
+  const NUM_RUNS = 3
+  const allRuns: Record<string, { discussed: string[]; mentioned: string[] }>[] = []
+
+  for (let run = 0; run < NUM_RUNS; run++) {
+    const runResult: Record<string, { discussed: string[]; mentioned: string[] }> = {}
+    await Promise.all(
+      ENTITY_TYPES.map(async et => {
+        try {
+          const prompt = appendNote(loadPrompt(`${et}.txt`).replace('{transcript}', transcript))
+          const text   = await callGemini(prompt, false)
+          runResult[et] = parsePlainTextEntityResult(text)
+        } catch {
+          runResult[et] = { discussed: [], mentioned: [] }
+        }
+      }),
+    )
+    allRuns.push(runResult)
+  }
+
+  // Merge all runs: union by lowercase, preserving first-seen order
   const merged: Record<string, { discussed: string[]; mentioned: string[] }> = {}
   for (const et of ENTITY_TYPES) {
     const discussed: string[] = []
     const mentioned: string[] = []
     const seenD = new Set<string>()
     const seenM = new Set<string>()
-    for (const run of runs) {
-      const r = (run as Record<string, Record<string, string[]>>)[et] ?? {}
-      for (const name of r.discussed ?? []) {
+    for (const run of allRuns) {
+      for (const name of run[et]?.discussed ?? []) {
         if (!seenD.has(name.toLowerCase())) { seenD.add(name.toLowerCase()); discussed.push(name) }
       }
-      for (const name of r.mentioned ?? []) {
+      for (const name of run[et]?.mentioned ?? []) {
         if (!seenM.has(name.toLowerCase())) { seenM.add(name.toLowerCase()); mentioned.push(name) }
       }
     }
@@ -219,9 +269,7 @@ export async function POST(req: NextRequest) {
       if (!course?.r2_dir) return NextResponse.json({ error: 'r2_dir not set on course' }, { status: 400 })
 
       const transcript = await getR2Text(`${course.r2_dir}/${lec.order_in_course}/transcript.txt`)
-      const prompt     = appendNote(loadPrompt('entities_all.txt').replace('{transcript}', transcript))
-      const runs       = await callGemini3x(prompt)
-      const extracted  = mergeEntityRuns(runs)
+      const extracted  = await extractEntitiesWithPerEntityPrompts(transcript, appendNote)
       const current    = await fetchCurrentEntities(body.lectureId)
 
       return NextResponse.json({ type: 'entities', lectureId: body.lectureId, current, extracted })

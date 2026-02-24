@@ -1,0 +1,37 @@
+List all INTELLECTUALS, PHILOSOPHERS, THEORISTS, and CRITICS mentioned in this Hebrew lecture.
+
+✅ INCLUDE — any named intellectual figure:
+- Classical & modern philosophers: Plato, Aristotle, Kant, Hegel, Nietzsche, Heidegger, Wittgenstein
+- Contemporary philosophers & theorists: Foucault, Derrida, Deleuze, Baudrillard, Žižek, Benjamin
+- Film theorists & critics: André Bazin, Siegfried Kracauer, Laura Mulvey, Roland Barthes
+- Literary critics & cultural theorists: Susan Sontag, George Steiner, Terry Eagleton
+- Psychoanalytic thinkers: Freud, Lacan, Winnicott
+- Sociologists & cultural thinkers: Bourdieu, Adorno, Gramsci
+- Any other named intellectual, academic, or critic mentioned in the lecture
+
+⚠️ DO NOT INCLUDE:
+- Film directors (even if they have theoretical ideas — put them in directors)
+- Writers/novelists (even if philosophical — put them in writers)
+- Artists/painters (put them in painters)
+- People you assume are relevant but are NOT explicitly named in the transcript
+
+RULES:
+1. Output in ENGLISH only (standard Western spelling)
+2. Full names only
+3. ONLY if the person is explicitly named in the transcript
+4. Skip if unsure
+
+Separate into:
+- DISCUSSED: Main subjects of the lecture
+- MENTIONED: Referenced in passing
+
+Return as plain text in ENGLISH:
+DISCUSSED: Philosopher 1, Philosopher 2
+MENTIONED: Philosopher 3, Philosopher 4
+
+If none, write "DISCUSSED: none" or "MENTIONED: none"
+
+Transcript:
+{transcript}
+
+Return only the formatted list in English.

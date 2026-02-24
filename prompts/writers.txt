@@ -1,0 +1,35 @@
+List all WRITERS/AUTHORS (novelists, poets, playwrights, essayists) mentioned in this Hebrew lecture.
+
+⚠️ CRITICAL - DO NOT INCLUDE:
+- Film directors (even if they wrote screenplays)
+- Philosophers (even if they wrote books)
+- Painters/artists
+- Screenwriters who are primarily directors
+- ONLY writers whose PRIMARY creative work is literature (novels, poetry, plays, essays)
+
+✅ INCLUDE:
+- Novelists: James Joyce, Franz Kafka, Vladimir Nabokov
+- Poets: Edgar Allan Poe, T.S. Eliot
+- Playwrights: Samuel Beckett, Harold Pinter
+- Essayists known for literary works
+
+RULES:
+1. Output in ENGLISH only - full names (e.g., "James Joyce", "Franz Kafka")
+2. Full names only
+3. Only if 100% certain they are PRIMARILY a literary writer
+4. Skip if unsure
+
+Separate into:
+- DISCUSSED: Main subjects of the lecture
+- MENTIONED: Referenced in passing
+
+Return as plain text IN ENGLISH:
+DISCUSSED: James Joyce, Franz Kafka
+MENTIONED: T.S. Eliot
+
+If none, write "DISCUSSED: none" or "MENTIONED: none"
+
+Transcript:
+{transcript}
+
+Return only the formatted list in English.

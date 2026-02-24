@@ -395,9 +395,10 @@ export function CourseUploader() {
                 <div className="divide-y divide-white/[0.03]">
                   {managedCourses.map(c => {
                     const sub      = subjectFor(c.subjectId)
-                    // r2LectureCount = total lectures available in R2 (the full course size)
-                    // lectureCount   = lectures already in DB
-                    const total    = c.r2LectureCount
+                    // Prefer R2 count as authoritative total; fall back to DB count
+                    // (manually-uploaded courses have 0 R2 sub-dirs → show 100%)
+                    const r2Total  = c.r2LectureCount && c.r2LectureCount > 0 ? c.r2LectureCount : null
+                    const total    = r2Total ?? (c.lectureCount > 0 ? c.lectureCount : null)
                     const uploaded = Math.max(c.lectureCount, uploadStatus?.succeededPerCourse[c.id] ?? 0)
                     const pct      = total != null && total > 0 ? Math.round((uploaded / total) * 100) : 0
                     const subtitle = [

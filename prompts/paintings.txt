@@ -1,0 +1,34 @@
+List all PAINTINGS/ARTWORKS mentioned in this Hebrew lecture.
+
+⚠️ CRITICAL RULES:
+1. Output in HEBREW only
+2. ONLY REAL ARTWORKS - no fictional/imaginary works!
+3. ONLY paintings/visual art - NOT films or books
+4. Format: "Artwork Title (Artist Name)" in Hebrew
+5. Only if 100% certain it's a REAL artwork
+6. If NO real artworks mentioned, write "none" - DO NOT make up artworks!
+
+✅ EXAMPLES OF REAL ARTWORKS:
+- גרניקה (פיקאסו)
+- לילה זרוע כוכבים (ואן גוך)
+- הצעקה (מונק)
+
+⚠️ DO NOT INCLUDE:
+- Films (those go in films list)
+- Books (those go in books list)
+- Fictional artworks from films
+
+Separate into:
+- DISCUSSED: Main subjects of the lecture  
+- MENTIONED: Referenced in passing
+
+Return as plain text IN HEBREW with artist in parentheses:
+DISCUSSED: Artwork 1 (Artist), Artwork 2 (Artist)
+MENTIONED: Artwork 3 (Artist), Artwork 4 (Artist)
+
+If NO real artworks mentioned, write "DISCUSSED: none" and "MENTIONED: none"
+
+Transcript:
+{transcript}
+
+Return ONLY the formatted list in Hebrew. Be very conservative - only include REAL artworks you are certain about!

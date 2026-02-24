@@ -14,6 +14,7 @@ import { RecoveryPanel } from './RecoveryPanel'
 import { RelationshipManager } from './RelationshipManager'
 import { CourseUploader } from './CourseUploader'
 import { CourseEditor } from './CourseEditor'
+import { LectureMetaEditor } from './LectureMetaEditor'
 import { GeneratePanel } from './GeneratePanel'
 import { useToast } from './ToastProvider'
 import clsx from 'clsx'
@@ -226,6 +227,7 @@ export function Dashboard() {
             >
               <EntityEditor />
               <CourseEditor />
+              <LectureMetaEditor />
             </motion.div>
           )}
           {tab === 'merge' && (

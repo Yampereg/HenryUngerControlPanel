@@ -1,0 +1,26 @@
+List all FILMS mentioned in this Hebrew lecture.
+
+CRITICAL RULES:
+1. Output film titles in ENGLISH only (e.g., "The Royal Tenenbaums", "Moonrise Kingdom")
+2. Real films only - no fictional films
+3. Only if 100% certain - skip if unsure
+4. Write full film title in English
+5. Include if the context makes clear it is a film (e.g. the lecture discusses the director, cinematography, or story as a film).
+   In a film lecture, a title mentioned in film context is likely a film — include it.
+   Do NOT include TV shows, books, or plays.
+   Film titles may appear in Hebrew (translated or transliterated) — recognize and output the English title.
+
+Separate into:
+- DISCUSSED: Main subjects of the lecture
+- MENTIONED: Referenced in passing
+
+Return as plain text with ENGLISH titles:
+DISCUSSED: Film 1, Film 2
+MENTIONED: Film 3, Film 4
+
+If none, write "DISCUSSED: none" or "MENTIONED: none"
+
+Transcript:
+{transcript}
+
+Return only the formatted list with English film titles.

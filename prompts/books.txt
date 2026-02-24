@@ -1,0 +1,32 @@
+List all SPECIFIC BOOKS/NOVELS/LITERARY WORKS mentioned in this Hebrew lecture.
+
+NOT films - only written works (novels, poetry, essays, books).
+
+CRITICAL RULES:
+1. Output in ENGLISH only - use the English title
+2. Real books only - no fictional books
+3. Only if 100% certain - skip if unsure
+4. Title only — do NOT include the author
+5. SPECIFIC TITLES ONLY — do NOT include broad collections, genres, or general categories:
+   ❌ BAD: "Chekhov's Plays", "Shakespeare's Works", "Greek Tragedies"
+   ✅ GOOD: "The Cherry Orchard", "Hamlet", "Oedipus Rex"
+6. If only a general body of work is mentioned (not a specific title), SKIP IT
+7. The work must be a specific titled written work — include if the context makes clear it is a book/essay/novel
+   (e.g. "in his book", "the novel X", or simply a title clearly belonging to a well-known written work).
+   Do NOT include generic concepts or topics that happen to share a name with a book.
+   Names/titles may appear in Hebrew — recognize and output the English title.
+
+Separate into:
+- DISCUSSED: Main subjects of the lecture
+- MENTIONED: Referenced in passing
+
+Return as plain text IN ENGLISH:
+DISCUSSED: Ulysses, The Trial
+MENTIONED: Hamlet
+
+If none, write "DISCUSSED: none" or "MENTIONED: none"
+
+Transcript:
+{transcript}
+
+Return only the formatted list in English.
