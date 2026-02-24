@@ -34,7 +34,8 @@ export async function GET() {
   // Count R2 sub-directories per course (= total lectures available in R2)
   const r2Counts = await Promise.all(
     courses.map(async c => {
-      const r2Dir = c.r2_dir as string
+      // Trim any trailing slash so we never call listR2Prefixes with a double-slash
+      const r2Dir = (c.r2_dir as string).replace(/\/+$/, '')
       try {
         const prefixes = await listR2Prefixes(`${r2Dir}/`)
         const count = prefixes
