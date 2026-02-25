@@ -1,20 +1,30 @@
-// LOCATION: app/api/entities/duplicates/route.ts  (replace existing)
+// LOCATION: app/api/entities/duplicates/route.ts
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { listR2Keys } from '@/lib/r2'
 import { ENTITY_TYPES, JUNCTION_MAP, EntityType, R2_IMAGES_PREFIX } from '@/lib/constants'
 
-// Cross-category types: compared with each other AND within themselves
-const CROSS_TYPES: EntityType[] = ['directors', 'writers', 'philosophers']
-// Self-only types: compared only within the same category
-const SELF_TYPES:  EntityType[] = ['books', 'films', 'painters', 'paintings']
-const ALL_TYPES:   EntityType[] = [...CROSS_TYPES, ...SELF_TYPES]
+// All entity types eligible for duplicate detection (excluding courses/lectures)
+const ALL_TYPES: EntityType[] = [
+  'directors', 'writers', 'philosophers',
+  'films', 'books', 'painters', 'paintings',
+]
 
-/** Two entities can be compared/merged only if they're the same type, or both are cross-types. */
+/**
+ * Two entities can be compared/merged if they share the same type,
+ * OR both are "person" types (can be misclassified),
+ * OR both are "work" types (can be misclassified).
+ *
+ * Person types: directors, writers, philosophers, painters
+ * Work types:   films, books, paintings
+ *
+ * We allow ALL cross-type comparisons — the user decides what to merge.
+ */
 function canCompare(typeA: EntityType, typeB: EntityType): boolean {
   if (typeA === typeB) return true
-  return CROSS_TYPES.includes(typeA) && CROSS_TYPES.includes(typeB)
+  // Allow all cross-type comparisons across ALL_TYPES
+  return ALL_TYPES.includes(typeA) && ALL_TYPES.includes(typeB)
 }
 
 // ── Fuzzy name similarity ─────────────────────────────────────────────────────
@@ -113,21 +123,31 @@ export async function GET() {
       hasImage:        imageExists.get(`${e.type}:${e.id}`) ?? false,
     }))
 
-    // 5. Exact matches — group by (name, merge-bucket)
-    const byNameBucket = new Map<string, typeof allEntities>()
+    // 5. Exact matches — group by lowercase name, across all comparable types
+    // Key: normalized name. Group all entities with same name that canCompare with each other.
+    const byName = new Map<string, typeof allEntities>()
     for (const entity of allEntities) {
-      const name   = entity.displayName.trim().toLowerCase()
-      const bucket = CROSS_TYPES.includes(entity.type) ? `cross:${name}` : `${entity.type}:${name}`
-      if (!byNameBucket.has(bucket)) byNameBucket.set(bucket, [])
-      byNameBucket.get(bucket)!.push(entity)
+      const name = entity.displayName.trim().toLowerCase()
+      if (!byName.has(name)) byName.set(name, [])
+      byName.get(name)!.push(entity)
     }
 
     const exactGroups: DuplicateGroup[] = []
-    for (const [, group] of byNameBucket) {
-      if (group.length > 1) {
+    for (const [, group] of byName) {
+      if (group.length < 2) continue
+      // Filter to pairs that canCompare
+      const eligible: typeof allEntities = []
+      for (const entity of group) {
+        if (eligible.some(e => canCompare(e.type, entity.type))) {
+          eligible.push(entity)
+        } else if (eligible.length === 0) {
+          eligible.push(entity)
+        }
+      }
+      if (eligible.length > 1) {
         exactGroups.push({
-          name:       group[0].displayName,
-          entities:   group,
+          name:       eligible[0].displayName,
+          entities:   eligible,
           matchType:  'exact',
           similarity: 1.0,
         })
@@ -155,14 +175,12 @@ export async function GET() {
 
         const sim = nameSimilarity(a.displayName, b.displayName)
         if (sim >= FUZZY_THRESHOLD && sim < 1.0) {
-          // Check if these are already in the same group
           const existingGroup = similarGroups.find(g =>
             g.entities.some(e => `${e.type}:${e.id}` === keyA) ||
             g.entities.some(e => `${e.type}:${e.id}` === keyB),
           )
 
           if (existingGroup) {
-            // Add the other entity to the group if not present
             if (!existingGroup.entities.some(e => `${e.type}:${e.id}` === keyA)) {
               existingGroup.entities.push(a)
               usedInSimilar.add(keyA)
