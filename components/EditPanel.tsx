@@ -1,578 +1,436 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+/**
+ * EditPanel.tsx
+ *
+ * Merged Upload + Edit panel.
+ * • Upload tab   — image upload (hidden for lectures & themes)
+ * • Edit tab     — inline field editing per entity type
+ *
+ * Schema-accurate editable fields:
+ *   directors / writers / philosophers / painters : name, hebrew_name, description
+ *   films / books / paintings                      : title, hebrew_name, description
+ *   themes                                         : name, hebrew_name  (no description, no image)
+ *   courses     : title, description, course_r2_url, subject_id, r2_dir
+ *   lectures    : title, synopsis, duration, date, order_in_course, transcribed (no image)
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  AlertTriangle, Check, ChevronUp, Loader2,
-  Pencil, RefreshCw, Search, Trash2, X, Plus,
+  Upload, Edit3, ImageIcon, Save, X, Check,
+  Loader2, Trash2, FileImage, RefreshCw,
+  ChevronDown, ToggleLeft, ToggleRight,
+  AlertCircle, CheckCircle2,
 } from 'lucide-react'
-import { Entity, EntityType, ENTITY_TYPES, JUNCTION_MAP } from '@/lib/constants'
-import { EntitySelector } from './EntitySelector'
+import { EntityType, ENTITY_TYPES } from '@/lib/constants'
+import { useEntityStore } from '@/stores/entityStore'
 import { useToast } from './ToastProvider'
 import clsx from 'clsx'
 
-type EditSection = 'entities' | 'courses' | 'lectures'
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants & types
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ===========================================================================
-// Shared sub-components
-// ===========================================================================
+/** Entity types that NEVER have an image */
+const NO_IMAGE_TYPES: EntityType[] = ['lectures', 'themes']
 
-// ---------------------------------------------------------------------------
-// Tag chip
-// ---------------------------------------------------------------------------
-function Tag({ label, onRemove }: { label: string; onRemove: () => void }) {
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
-                     bg-aura-accent/10 text-aura-accent border border-aura-accent/20 text-xs font-mono">
-      {label}
-      <button
-        onClick={onRemove}
-        className="ml-0.5 text-aura-accent/60 hover:text-aura-accent transition-colors"
-        aria-label="Remove"
-      >
-        <X size={10} />
-      </button>
-    </span>
-  )
+/** Field definitions per entity type, in display order */
+type FieldDef = {
+  key:          string
+  label:        string
+  type:         'text' | 'textarea' | 'number' | 'boolean' | 'select'
+  placeholder?: string
+  options?:     { value: string | number; label: string }[]
+  required?:    boolean
+  hint?:        string
 }
 
-// ---------------------------------------------------------------------------
-// TagInput — text input that appends a value on Enter or comma
-// ---------------------------------------------------------------------------
-function TagInput({
-  values,
-  onChange,
-  placeholder,
-  validate,
-}: {
-  values:      string[]
-  onChange:    (v: string[]) => void
-  placeholder: string
-  validate?:   (v: string) => boolean
-}) {
-  const [input, setInput] = useState('')
+const FIELD_MAP: Record<EntityType, FieldDef[]> = {
+  directors: [
+    { key: 'name',        label: 'Name',        type: 'text',     required: true, placeholder: 'Full name' },
+    { key: 'hebrew_name', label: 'Hebrew Name',  type: 'text',     placeholder: 'שם בעברית' },
+    { key: 'description', label: 'Description',  type: 'textarea', placeholder: 'Bio / notes…' },
+  ],
+  writers: [
+    { key: 'name',        label: 'Name',        type: 'text',     required: true, placeholder: 'Full name' },
+    { key: 'hebrew_name', label: 'Hebrew Name',  type: 'text',     placeholder: 'שם בעברית' },
+    { key: 'description', label: 'Description',  type: 'textarea', placeholder: 'Bio / notes…' },
+  ],
+  philosophers: [
+    { key: 'name',        label: 'Name',        type: 'text',     required: true, placeholder: 'Full name' },
+    { key: 'hebrew_name', label: 'Hebrew Name',  type: 'text',     placeholder: 'שם בעברית' },
+    { key: 'description', label: 'Description',  type: 'textarea', placeholder: 'Bio / notes…' },
+  ],
+  painters: [
+    { key: 'name',        label: 'Name',        type: 'text',     required: true, placeholder: 'Full name' },
+    { key: 'hebrew_name', label: 'Hebrew Name',  type: 'text',     placeholder: 'שם בעברית' },
+    { key: 'description', label: 'Description',  type: 'textarea', placeholder: 'Bio / notes…' },
+  ],
+  films: [
+    { key: 'title',       label: 'Title',       type: 'text',     required: true, placeholder: 'Film title' },
+    { key: 'hebrew_name', label: 'Hebrew Name',  type: 'text',     placeholder: 'שם בעברית' },
+    { key: 'description', label: 'Description',  type: 'textarea', placeholder: 'Film notes…' },
+  ],
+  books: [
+    { key: 'title',       label: 'Title',       type: 'text',     required: true, placeholder: 'Book title' },
+    { key: 'hebrew_name', label: 'Hebrew Name',  type: 'text',     placeholder: 'שם בעברית' },
+    { key: 'description', label: 'Description',  type: 'textarea', placeholder: 'Book notes…' },
+  ],
+  paintings: [
+    { key: 'title',       label: 'Title',       type: 'text',     required: true, placeholder: 'Painting title' },
+    { key: 'hebrew_name', label: 'Hebrew Name',  type: 'text',     placeholder: 'שם בעברית' },
+    { key: 'description', label: 'Description',  type: 'textarea', placeholder: 'Painting notes…' },
+  ],
+  themes: [
+    { key: 'name',        label: 'Name',        type: 'text',     required: true, placeholder: 'Theme name' },
+    { key: 'hebrew_name', label: 'Hebrew Name',  type: 'text',     placeholder: 'שם בעברית' },
+    // no description column in themes table
+  ],
+  courses: [
+    { key: 'title',          label: 'Title',         type: 'text',     required: true, placeholder: 'Course title' },
+    { key: 'description',    label: 'Description',   type: 'textarea', placeholder: 'Course overview…' },
+    { key: 'course_r2_url',  label: 'R2 URL',        type: 'text',     placeholder: 'https://…', hint: 'Public URL of the course folder in R2' },
+    { key: 'r2_dir',         label: 'R2 Directory',  type: 'text',     placeholder: 'courses/my-course', hint: 'Unique R2 directory key (slug)' },
+  ],
+  lectures: [
+    { key: 'title',           label: 'Title',           type: 'text',    required: true, placeholder: 'Lecture title' },
+    { key: 'synopsis',        label: 'Synopsis',        type: 'textarea', placeholder: 'Brief summary…' },
+    { key: 'date',            label: 'Date',            type: 'text',    placeholder: 'YYYY-MM-DD' },
+    { key: 'duration',        label: 'Duration (min)',  type: 'number',  placeholder: '90' },
+    { key: 'order_in_course', label: 'Order in Course', type: 'number',  placeholder: '1' },
+    { key: 'transcribed',     label: 'Transcribed',     type: 'boolean' },
+  ],
+}
 
-  function commit() {
-    const v = input.trim()
-    if (!v) return
-    if (validate && !validate(v)) return
-    if (!values.includes(v)) onChange([...values, v])
-    setInput('')
-  }
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
-  function handleKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit() }
-    if (e.key === 'Backspace' && !input && values.length > 0) {
-      onChange(values.slice(0, -1))
+function displayName(entity: Record<string, unknown>, type: EntityType): string {
+  const cfg = ENTITY_TYPES[type]
+  return (entity[cfg.nameField] as string) ?? `#${entity.id}`
+}
+
+function hasImage(type: EntityType) {
+  return !NO_IMAGE_TYPES.includes(type)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ImageUploader sub-component
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ImageUploaderProps {
+  type:         EntityType
+  entityId:     number
+  entityName:   string
+  currentImage: string | null
+  onUploaded:   () => void
+  onDeleted:    () => void
+}
+
+function ImageUploader({
+  type, entityId, entityName,
+  currentImage, onUploaded, onDeleted,
+}: ImageUploaderProps) {
+  const { error: toastError, success } = useToast()
+  const inputRef   = useRef<HTMLInputElement>(null)
+  const [preview,  setPreview]  = useState<string | null>(currentImage)
+  const [uploading, setUploading] = useState(false)
+  const [deleting,  setDeleting]  = useState(false)
+  const [dragOver,  setDragOver]  = useState(false)
+
+  useEffect(() => { setPreview(currentImage) }, [currentImage])
+
+  async function upload(file: File) {
+    if (!file.type.startsWith('image/')) {
+      toastError('Invalid file', 'Please upload an image file.')
+      return
+    }
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file',       file)
+      form.append('entityType', type)
+      form.append('entityId',   String(entityId))
+
+      const res = await fetch('/api/entities/upload-image', { method: 'POST', body: form })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error ?? 'Upload failed')
+      }
+      const { url } = await res.json()
+      setPreview(url)
+      success('Uploaded', `Image set for "${entityName}".`)
+      onUploaded()
+    } catch (e) {
+      toastError('Upload failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setUploading(false)
     }
   }
 
+  async function handleDelete() {
+    if (!preview) return
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/entities/upload-image', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ entityType: type, entityId }),
+      })
+      if (!res.ok) throw new Error('Delete failed')
+      setPreview(null)
+      success('Deleted', `Image removed for "${entityName}".`)
+      onDeleted()
+    } catch (e) {
+      toastError('Delete failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) upload(file)
+  }
+
   return (
-    <div className="flex flex-wrap gap-1.5 items-center p-2 rounded-xl
-                    bg-white/[0.04] border border-white/[0.08] min-h-[40px]
-                    focus-within:border-aura-accent/40 transition-colors">
-      {values.map(v => (
-        <Tag key={v} label={v} onRemove={() => onChange(values.filter(x => x !== v))} />
-      ))}
+    <div className="space-y-3">
+      {/* Drop zone / preview */}
+      <div
+        onClick={() => !preview && inputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        className={clsx(
+          'relative rounded-xl border-2 border-dashed transition-all duration-200 overflow-hidden',
+          preview
+            ? 'border-transparent cursor-default'
+            : dragOver
+            ? 'border-aura-accent/60 bg-aura-accent/[0.06] cursor-copy'
+            : 'border-white/[0.10] hover:border-aura-accent/30 hover:bg-white/[0.02] cursor-pointer',
+          preview ? 'aspect-[4/3]' : 'aspect-[4/3] flex flex-col items-center justify-center gap-3',
+        )}
+      >
+        {preview ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={preview}
+              alt={entityName}
+              className="w-full h-full object-cover"
+            />
+            {/* Overlay actions */}
+            <div className="absolute inset-0 bg-black/0 hover:bg-black/50 transition-colors flex items-center justify-center gap-3 opacity-0 hover:opacity-100">
+              <button
+                onClick={e => { e.stopPropagation(); inputRef.current?.click() }}
+                disabled={uploading}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/90 text-black text-xs font-semibold hover:bg-white transition-colors"
+              >
+                <Upload size={12} /> Replace
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); handleDelete() }}
+                disabled={deleting}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-aura-error/90 text-white text-xs font-semibold hover:bg-aura-error transition-colors"
+              >
+                {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                Delete
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center">
+              {uploading
+                ? <Loader2 size={20} className="animate-spin text-aura-accent" />
+                : <FileImage size={20} className="text-aura-muted/50" />
+              }
+            </div>
+            <div className="text-center">
+              <p className="text-xs font-semibold text-aura-text">
+                {uploading ? 'Uploading…' : dragOver ? 'Drop to upload' : 'Click or drag image'}
+              </p>
+              <p className="text-[10px] text-aura-muted mt-0.5">JPG, PNG, WebP · max 5 MB</p>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Loading bar */}
+      {uploading && (
+        <div className="h-0.5 rounded-full bg-white/[0.05] overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-aura-indigo to-aura-accent animate-pulse w-2/3" />
+        </div>
+      )}
+
       <input
-        value={input}
-        onChange={e => setInput(e.target.value)}
-        onKeyDown={handleKey}
-        onBlur={commit}
-        placeholder={values.length === 0 ? placeholder : ''}
-        className="flex-1 min-w-[80px] bg-transparent text-xs text-aura-text
-                   placeholder-aura-muted/50 outline-none"
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => e.target.files?.[0] && upload(e.target.files[0])}
       />
     </div>
   )
 }
 
-// ===========================================================================
-// ENTITIES section sub-components
-// ===========================================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// FieldEditor — renders one editable field
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ---------------------------------------------------------------------------
-// Edit modal — bottom sheet
-// ---------------------------------------------------------------------------
-function EditModal({
-  entity,
-  entityType,
-  onSave,
-  onCancel,
-}: {
-  entity:     Entity
-  entityType: EntityType
-  onSave:     (updated: Partial<Entity>) => void
-  onCancel:   () => void
-}) {
-  const [name,        setName]        = useState(entity.displayName ?? '')
-  const [hebrewName,  setHebrewName]  = useState(entity.hebrewName ?? '')
-  const [description, setDescription] = useState(entity.description ?? '')
-  const [saving,      setSaving]      = useState(false)
-  const { error: toastError } = useToast()
+interface FieldEditorProps {
+  field:    FieldDef
+  value:    unknown
+  onChange: (val: unknown) => void
+  saving:   boolean
+}
+
+function FieldEditor({ field, value, onChange, saving }: FieldEditorProps) {
+  const base = clsx(
+    'w-full bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text',
+    'placeholder-aura-muted/40 focus:outline-none focus:border-aura-accent/40 transition-colors',
+    'disabled:opacity-40',
+  )
+
+  if (field.type === 'boolean') {
+    const on = Boolean(value)
+    return (
+      <button
+        onClick={() => onChange(!on)}
+        disabled={saving}
+        className={clsx(
+          'flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all',
+          on
+            ? 'bg-aura-success/10 border-aura-success/30 text-aura-success'
+            : 'bg-white/[0.02] border-white/[0.08] text-aura-muted',
+        )}
+      >
+        {on
+          ? <ToggleRight size={18} className="text-aura-success" />
+          : <ToggleLeft  size={18} />
+        }
+        {on ? 'Yes' : 'No'}
+      </button>
+    )
+  }
+
+  if (field.type === 'textarea') {
+    return (
+      <textarea
+        value={String(value ?? '')}
+        onChange={e => onChange(e.target.value)}
+        disabled={saving}
+        placeholder={field.placeholder}
+        rows={3}
+        className={clsx(base, 'resize-none leading-relaxed')}
+      />
+    )
+  }
+
+  if (field.type === 'number') {
+    return (
+      <input
+        type="number"
+        value={value === null || value === undefined ? '' : String(value)}
+        onChange={e => onChange(e.target.value === '' ? null : Number(e.target.value))}
+        disabled={saving}
+        placeholder={field.placeholder}
+        className={base}
+      />
+    )
+  }
+
+  if (field.type === 'select' && field.options) {
+    return (
+      <select
+        value={String(value ?? '')}
+        onChange={e => onChange(e.target.value)}
+        disabled={saving}
+        className={clsx(base, 'appearance-none')}
+      >
+        <option value="">— select —</option>
+        {field.options.map(o => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    )
+  }
+
+  return (
+    <input
+      type="text"
+      value={String(value ?? '')}
+      onChange={e => onChange(e.target.value)}
+      disabled={saving}
+      placeholder={field.placeholder}
+      className={clsx(base, field.key === 'hebrew_name' ? 'text-right font-hebrew' : '')}
+      dir={field.key === 'hebrew_name' ? 'rtl' : 'ltr'}
+    />
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EntityEditForm — edit all fields of one entity
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface EntityEditFormProps {
+  type:     EntityType
+  entity:   Record<string, unknown>
+  onSaved:  () => void
+}
+
+function EntityEditForm({ type, entity, onSaved }: EntityEditFormProps) {
+  const { error: toastError, success } = useToast()
+  const fields = FIELD_MAP[type] ?? []
+
+  // Build initial state from entity
+  const initialValues = () =>
+    Object.fromEntries(fields.map(f => [f.key, entity[f.key] ?? null]))
+
+  const [values,   setValues]   = useState<Record<string, unknown>>(initialValues)
+  const [saving,   setSaving]   = useState(false)
+  const [dirty,    setDirty]    = useState(false)
+  const [imgUrl,   setImgUrl]   = useState<string | null>((entity.image_url as string | null) ?? null)
+
+  // Reset when entity changes
+  useEffect(() => {
+    setValues(initialValues())
+    setImgUrl((entity.image_url as string | null) ?? null)
+    setDirty(false)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity.id, type])
+
+  function handleChange(key: string, val: unknown) {
+    setValues(prev => ({ ...prev, [key]: val }))
+    setDirty(true)
+  }
 
   async function handleSave() {
+    // Validate required fields
+    for (const f of fields) {
+      if (f.required && !values[f.key]) {
+        toastError('Validation', `"${f.label}" is required.`)
+        return
+      }
+    }
     setSaving(true)
     try {
-      const res = await fetch(`/api/entities/${entityType}/${entity.id}`, {
-        method: 'PATCH',
+      const res = await fetch(`/api/entities/${type}/${entity.id}`, {
+        method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name:        name.trim(),
-          hebrewName:  hebrewName.trim() || null,
-          description: description.trim() || null,
-        }),
+        body:    JSON.stringify(values),
       })
       if (!res.ok) {
         const d = await res.json()
         throw new Error(d.error ?? 'Save failed')
       }
-      onSave({ displayName: name.trim(), hebrewName: hebrewName.trim() || null, description: description.trim() || null })
-    } catch (e: unknown) {
-      toastError('Save failed', e instanceof Error ? e.message : String(e))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex flex-col justify-end"
-      onClick={onCancel}
-    >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <motion.div
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="relative glass rounded-t-3xl border-t border-x border-white/[0.10] p-5 space-y-4"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto -mt-1 mb-2" />
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-aura-text">Edit entity</p>
-            <p className="text-xs text-aura-muted mt-0.5 truncate max-w-[220px]">
-              #{entity.id} · {entity.displayName}
-            </p>
-          </div>
-          <button
-            onClick={onCancel}
-            disabled={saving}
-            className="p-2 rounded-xl bg-white/[0.04] text-aura-muted disabled:opacity-40"
-          >
-            <X size={15} />
-          </button>
-        </div>
-        <div>
-          <p className="text-xs text-aura-muted mb-1.5">Name</p>
-          <input
-            value={name}
-            onChange={e => setName(e.target.value)}
-            className="w-full bg-white/[0.06] border border-white/[0.12] rounded-xl px-3 py-2.5
-                       text-sm text-aura-text outline-none focus:border-aura-accent/50"
-          />
-        </div>
-        <div>
-          <p className="text-xs text-aura-muted mb-1.5">Hebrew name</p>
-          <input
-            value={hebrewName}
-            onChange={e => setHebrewName(e.target.value)}
-            placeholder="—"
-            dir="rtl"
-            className="w-full bg-white/[0.06] border border-white/[0.12] rounded-xl px-3 py-2.5
-                       text-sm text-aura-text outline-none focus:border-aura-accent/50 font-hebrew"
-          />
-        </div>
-        <div>
-          <p className="text-xs text-aura-muted mb-1.5">Description</p>
-          <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="—"
-            rows={3}
-            dir="rtl"
-            className="w-full bg-white/[0.06] border border-white/[0.12] rounded-xl px-3 py-2.5
-                       text-sm text-aura-text outline-none focus:border-aura-accent/50
-                       font-hebrew resize-none"
-          />
-        </div>
-        <div className="flex gap-3 pt-1">
-          <button
-            onClick={onCancel}
-            disabled={saving}
-            className="flex-1 py-3 rounded-xl border border-white/[0.08] text-aura-muted
-                       text-sm font-medium disabled:opacity-40"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-[2] flex items-center justify-center gap-2 py-3 rounded-xl
-                       bg-aura-accent/10 border border-aura-accent/20 text-aura-accent
-                       text-sm font-semibold disabled:opacity-40"
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            Save
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Delete confirmation dialog
-// ---------------------------------------------------------------------------
-function DeleteConfirm({
-  entity,
-  entityType,
-  onConfirm,
-  onCancel,
-  deleting,
-}: {
-  entity:     Entity
-  entityType: EntityType
-  onConfirm:  () => void
-  onCancel:   () => void
-  deleting:   boolean
-}) {
-  const hasJunction = entityType in JUNCTION_MAP
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-5"
-      onClick={onCancel}
-    >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="relative glass rounded-2xl p-5 border border-aura-error/30
-                   shadow-[0_0_40px_rgba(248,113,113,0.15)] w-full max-w-sm"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-9 h-9 rounded-xl bg-aura-error/10 flex items-center justify-center shrink-0">
-            <AlertTriangle size={18} className="text-aura-error" />
-          </div>
-          <div>
-            <p className="font-semibold text-aura-text text-sm">Delete entity?</p>
-            <p className="text-xs text-aura-muted mt-0.5 truncate max-w-[200px]">
-              {entity.displayName}
-            </p>
-          </div>
-        </div>
-        {hasJunction && (
-          <p className="text-xs text-aura-muted mb-4 leading-relaxed">
-            This will also unlink this entity from all lectures (the lectures themselves are NOT deleted).
-          </p>
-        )}
-        <div className="flex gap-2">
-          <button
-            onClick={onConfirm}
-            disabled={deleting}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl
-                       bg-aura-error/10 text-aura-error border border-aura-error/20
-                       text-sm font-medium disabled:opacity-40"
-          >
-            {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-            Delete
-          </button>
-          <button
-            onClick={onCancel}
-            disabled={deleting}
-            className="flex-1 py-2.5 rounded-xl glass border border-white/[0.08]
-                       text-aura-muted text-sm disabled:opacity-40"
-          >
-            Cancel
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Entity card row
-// ---------------------------------------------------------------------------
-function EntityCard({
-  entity,
-  onEdit,
-  onDelete,
-}: {
-  entity:   Entity
-  onEdit:   () => void
-  onDelete: () => void
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.04]
-                 active:bg-white/[0.03] transition-colors"
-    >
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-aura-text truncate">{entity.displayName}</p>
-        {entity.hebrewName
-          ? <p className="text-xs text-aura-muted font-hebrew truncate mt-0.5" dir="rtl">{entity.hebrewName}</p>
-          : <p className="text-xs text-aura-muted/30 mt-0.5">—</p>
-        }
-      </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          onClick={onEdit}
-          className="p-2 rounded-xl hover:bg-aura-accent/10 text-aura-muted hover:text-aura-accent transition-colors"
-        >
-          <Pencil size={14} />
-        </button>
-        <button
-          onClick={onDelete}
-          className="p-2 rounded-xl hover:bg-aura-error/10 text-aura-muted hover:text-aura-error transition-colors"
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
-    </motion.div>
-  )
-}
-
-// ===========================================================================
-// Section components
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
-// EntitiesSection (was EntityEditor)
-// ---------------------------------------------------------------------------
-function EntitiesSection() {
-  const { success, error: toastError } = useToast()
-
-  const [entityType,    setEntityType]    = useState<EntityType | null>(null)
-  const [entities,      setEntities]      = useState<Entity[]>([])
-  const [loading,       setLoading]       = useState(false)
-  const [query,         setQuery]         = useState('')
-  const [editingEntity, setEditingEntity] = useState<Entity | null>(null)
-  const [deleteTarget,  setDeleteTarget]  = useState<Entity | null>(null)
-  const [deleting,      setDeleting]      = useState(false)
-
-  const fetchEntities = useCallback(async (type: EntityType) => {
-    setLoading(true)
-    setEntities([])
-    setEditingEntity(null)
-    setQuery('')
-    try {
-      const res  = await fetch(`/api/entities/${type}?all=true`)
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed to load')
-      setEntities(data.entities ?? [])
-    } catch (e: unknown) {
-      toastError('Load failed', e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }, [toastError])
-
-  function handleTypeChange(type: EntityType) {
-    setEntityType(type)
-    fetchEntities(type)
-  }
-
-  function handleSaved(id: number, updated: Partial<Entity>) {
-    setEntities(prev => prev.map(e => e.id === id ? { ...e, ...updated } : e))
-    setEditingEntity(null)
-    success('Saved', 'Entity updated successfully.')
-  }
-
-  async function handleDelete() {
-    if (!deleteTarget || !entityType) return
-    setDeleting(true)
-    try {
-      const res = await fetch(`/api/entities/${entityType}/${deleteTarget.id}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error ?? 'Delete failed')
-      }
-      setEntities(prev => prev.filter(e => e.id !== deleteTarget.id))
-      success('Deleted', `"${deleteTarget.displayName}" removed.`)
-    } catch (e: unknown) {
-      toastError('Delete failed', e instanceof Error ? e.message : String(e))
-    } finally {
-      setDeleting(false)
-      setDeleteTarget(null)
-    }
-  }
-
-  const filtered = entities.filter(e => {
-    if (!query.trim()) return true
-    const q = query.toLowerCase()
-    return (
-      e.displayName.toLowerCase().includes(q) ||
-      (e.hebrewName ?? '').toLowerCase().includes(q)
-    )
-  })
-
-  return (
-    <div className="space-y-4">
-      <div className="glass rounded-2xl p-4 border border-white/[0.07] space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-aura-text">Select category</p>
-          {entityType && !loading && (
-            <button onClick={() => fetchEntities(entityType)} className="text-aura-muted" title="Refresh">
-              <RefreshCw size={14} />
-            </button>
-          )}
-        </div>
-        <EntitySelector selected={entityType} onChange={handleTypeChange} />
-      </div>
-
-      <AnimatePresence>
-        {entityType && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="glass rounded-2xl border border-white/[0.07] overflow-hidden"
-          >
-            <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-3">
-              <div className="flex items-center gap-2 bg-white/[0.04] rounded-xl px-3 py-2 flex-1">
-                <Search size={13} className="text-aura-muted shrink-0" />
-                <input
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="Search…"
-                  className="flex-1 bg-transparent text-sm text-aura-text placeholder:text-aura-muted outline-none"
-                />
-              </div>
-              <span className="text-xs text-aura-muted shrink-0">
-                {loading ? '…' : `${filtered.length}/${entities.length}`}
-              </span>
-            </div>
-            {loading ? (
-              <div className="flex items-center justify-center py-14 gap-2 text-aura-muted">
-                <Loader2 size={16} className="animate-spin" />
-                <span className="text-sm">Loading…</span>
-              </div>
-            ) : filtered.length === 0 ? (
-              <p className="text-center text-aura-muted text-sm py-14">No records found</p>
-            ) : (
-              <div>
-                {filtered.map(entity => (
-                  <EntityCard
-                    key={entity.id}
-                    entity={entity}
-                    onEdit={() => setEditingEntity(entity)}
-                    onDelete={() => setDeleteTarget(entity)}
-                  />
-                ))}
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {editingEntity && entityType && (
-          <EditModal
-            entity={editingEntity}
-            entityType={entityType}
-            onSave={(updated) => handleSaved(editingEntity.id, updated)}
-            onCancel={() => setEditingEntity(null)}
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {deleteTarget && entityType && (
-          <DeleteConfirm
-            entity={deleteTarget}
-            entityType={entityType}
-            onConfirm={handleDelete}
-            onCancel={() => !deleting && setDeleteTarget(null)}
-            deleting={deleting}
-          />
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// CoursesSection (was CourseEditor)
-// ---------------------------------------------------------------------------
-interface CourseItem  { id: number; title: string; subjectId: number | null }
-interface SubjectItem { id: number; nameEn: string; nameHe: string }
-
-function CoursesSection() {
-  const { success, error: toastError } = useToast()
-
-  const [courses,       setCourses]       = useState<CourseItem[]>([])
-  const [subjects,      setSubjects]      = useState<SubjectItem[]>([])
-  const [loading,       setLoading]       = useState(true)
-  const [editId,        setEditId]        = useState<number | null>(null)
-  const [editTitle,     setEditTitle]     = useState('')
-  const [editSubjectId, setEditSubjectId] = useState<number | null>(null)
-  const [saving,        setSaving]        = useState(false)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [coursesRes, subjectsRes] = await Promise.all([
-        fetch('/api/courses'),
-        fetch('/api/subjects'),
-      ])
-      const coursesData  = await coursesRes.json()
-      const subjectsData = await subjectsRes.json()
-      setCourses(
-        ((coursesData.courses ?? []) as { id: number; title: string; subject_id: number | null }[]).map(c => ({
-          id: c.id, title: c.title, subjectId: c.subject_id,
-        })),
-      )
-      setSubjects(
-        ((subjectsData.subjects ?? []) as { id: number; name_en: string; name_he: string }[]).map(s => ({
-          id: s.id, nameEn: s.name_en, nameHe: s.name_he,
-        })),
-      )
-    } catch {
-      toastError('Load failed', 'Could not load courses')
-    } finally {
-      setLoading(false)
-    }
-  }, [toastError])
-
-  useEffect(() => { load() }, [load])
-
-  function openEdit(course: CourseItem) {
-    setEditId(course.id)
-    setEditTitle(course.title)
-    setEditSubjectId(course.subjectId)
-  }
-
-  function closeEdit() { setEditId(null) }
-
-  async function handleSave() {
-    if (editId === null || !editTitle.trim()) return
-    setSaving(true)
-    try {
-      const res  = await fetch(`/api/courses/${editId}`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ title: editTitle.trim(), subjectId: editSubjectId }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      setCourses(prev =>
-        prev.map(c => c.id === editId ? { ...c, title: editTitle.trim(), subjectId: editSubjectId } : c),
-      )
-      success('Saved', 'Course updated.')
-      closeEdit()
+      setDirty(false)
+      success('Saved', `${ENTITY_TYPES[type].label.replace(/s$/, '')} updated.`)
+      onSaved()
     } catch (e) {
       toastError('Save failed', e instanceof Error ? e.message : String(e))
     } finally {
@@ -580,202 +438,426 @@ function CoursesSection() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="glass rounded-2xl p-8 border border-white/[0.07] flex justify-center">
-        <Loader2 size={20} className="animate-spin text-aura-muted" />
-      </div>
-    )
+  function handleReset() {
+    setValues(initialValues())
+    setDirty(false)
   }
 
+  const showImage = hasImage(type)
+
   return (
-    <div className="glass rounded-2xl border border-white/[0.07] overflow-hidden">
-      <div className="divide-y divide-white/[0.03]">
-        {courses.map(course => {
-          const subject = subjects.find(s => s.id === course.subjectId)
-          const isOpen  = editId === course.id
+    <div className="space-y-4">
+      {/* Image section */}
+      {showImage && (
+        <div>
+          <p className="text-[10px] font-bold text-aura-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <ImageIcon size={10} /> Image
+          </p>
+          <ImageUploader
+            type={type}
+            entityId={entity.id as number}
+            entityName={displayName(entity, type)}
+            currentImage={imgUrl}
+            onUploaded={() => {}}
+            onDeleted={() => setImgUrl(null)}
+          />
+        </div>
+      )}
 
-          return (
-            <div key={course.id}>
+      {/* Fields */}
+      <div className="space-y-3">
+        <p className="text-[10px] font-bold text-aura-muted uppercase tracking-wider flex items-center gap-1.5">
+          <Edit3 size={10} /> Fields
+        </p>
+        {fields.map(field => (
+          <div key={field.key}>
+            <label className="flex items-center gap-1.5 mb-1.5">
+              <span className="text-xs font-medium text-aura-text">{field.label}</span>
+              {field.required && <span className="text-[9px] text-aura-error">*</span>}
+              {field.hint && (
+                <span className="text-[9px] text-aura-muted/60 italic">{field.hint}</span>
+              )}
+            </label>
+            <FieldEditor
+              field={field}
+              value={values[field.key]}
+              onChange={val => handleChange(field.key, val)}
+              saving={saving}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Save / Reset actions */}
+      <div className="flex items-center gap-2 pt-1">
+        {dirty && (
+          <button
+            onClick={handleReset}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-aura-muted
+                       border border-white/[0.07] hover:bg-white/[0.04] transition-colors disabled:opacity-40"
+          >
+            <RefreshCw size={11} /> Reset
+          </button>
+        )}
+        <button
+          onClick={handleSave}
+          disabled={!dirty || saving}
+          className={clsx(
+            'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all',
+            dirty && !saving
+              ? 'bg-gradient-to-r from-aura-indigo to-aura-accent text-white shadow-[0_0_16px_rgba(129,140,248,0.2)] hover:opacity-90'
+              : 'bg-white/[0.04] text-aura-muted/40 cursor-not-allowed border border-white/[0.05]',
+          )}
+        >
+          {saving
+            ? <><Loader2 size={12} className="animate-spin" /> Saving…</>
+            : dirty
+            ? <><Save size={12} /> Save Changes</>
+            : <><Check size={12} /> Saved</>
+          }
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EntitySelector — pick type + entity
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface EntitySelectorProps {
+  selectedType:   EntityType
+  selectedId:     number | null
+  onTypeChange:   (t: EntityType) => void
+  onEntityChange: (id: number | null) => void
+}
+
+function EntitySelector({
+  selectedType, selectedId,
+  onTypeChange, onEntityChange,
+}: EntitySelectorProps) {
+  const { entities, loading, fetchEntities } = useEntityStore()
+
+  useEffect(() => {
+    if (!entities[selectedType]) fetchEntities(selectedType)
+  }, [selectedType, entities, fetchEntities])
+
+  const list = entities[selectedType] ?? []
+  const cfg  = ENTITY_TYPES[selectedType]
+
+  const ALL_TYPES = Object.keys(ENTITY_TYPES) as EntityType[]
+
+  return (
+    <div className="space-y-3">
+      {/* Type selector */}
+      <div>
+        <label className="text-[10px] font-bold text-aura-muted uppercase tracking-wider mb-1.5 block">
+          Entity Type
+        </label>
+        <div className="grid grid-cols-4 gap-1">
+          {ALL_TYPES.map(t => {
+            const tc = ENTITY_TYPES[t]
+            return (
               <button
-                onClick={() => isOpen ? closeEdit() : openEdit(course)}
-                className="w-full flex items-center justify-between px-4 py-3
-                           hover:bg-white/[0.02] transition-colors text-left"
+                key={t}
+                onClick={() => { onTypeChange(t); onEntityChange(null) }}
+                className={clsx(
+                  'flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-[10px] transition-all',
+                  selectedType === t
+                    ? 'bg-aura-indigo/10 border-aura-indigo/30 text-aura-indigo'
+                    : 'bg-white/[0.02] border-white/[0.06] text-aura-muted hover:border-white/[0.12] hover:bg-white/[0.04]',
+                )}
               >
-                <div className="min-w-0">
-                  <p className="text-sm text-aura-text truncate">{course.title}</p>
-                  {subject && (
-                    <p className="text-[10px] text-aura-muted mt-0.5">{subject.nameHe}</p>
-                  )}
-                </div>
-                {isOpen
-                  ? <ChevronUp size={13} className="text-aura-muted shrink-0 ml-2" />
-                  : <Pencil    size={11} className="text-aura-muted shrink-0 ml-2" />
-                }
+                <span className="text-base leading-none">{tc.icon}</span>
+                <span className="font-medium truncate w-full text-center">{tc.label}</span>
               </button>
+            )
+          })}
+        </div>
+      </div>
 
-              <AnimatePresence>
-                {isOpen && (
+      {/* Entity selector */}
+      <div>
+        <label className="text-[10px] font-bold text-aura-muted uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+          <span>{cfg.icon}</span> {cfg.label}
+        </label>
+        <div className="relative">
+          {loading[selectedType] ? (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-black/20 border border-white/[0.08]">
+              <Loader2 size={12} className="animate-spin text-aura-muted" />
+              <span className="text-xs text-aura-muted">Loading…</span>
+            </div>
+          ) : (
+            <>
+              <select
+                value={selectedId ?? ''}
+                onChange={e => onEntityChange(e.target.value ? Number(e.target.value) : null)}
+                className={clsx(
+                  'w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl',
+                  'px-3 py-2.5 text-sm text-aura-text pr-8',
+                  'focus:outline-none focus:border-aura-accent/40 transition-colors',
+                )}
+              >
+                <option value="">— select {cfg.label.toLowerCase().replace(/s$/, '')} —</option>
+                {list.map((e: Record<string, unknown>) => (
+                  <option key={e.id as number} value={e.id as number}>
+                    {displayName(e, selectedType)} {e.hebrew_name ? `(${e.hebrew_name})` : ''}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab button
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TabBtn({
+  active, icon: Icon, label, onClick,
+}: {
+  active:  boolean
+  icon:    React.ElementType
+  label:   string
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200',
+        active
+          ? 'bg-gradient-to-r from-aura-indigo to-aura-accent text-white shadow-[0_0_12px_rgba(129,140,248,0.18)]'
+          : 'text-aura-muted hover:text-aura-text hover:bg-white/[0.04]',
+      )}
+    >
+      <Icon size={13} />
+      {label}
+    </button>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main EditPanel
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function EditPanel() {
+  const { entities, fetchEntities, refreshEntity } = useEntityStore()
+
+  const [selectedType,   setSelectedType]   = useState<EntityType>('directors')
+  const [selectedId,     setSelectedId]     = useState<number | null>(null)
+  const [innerTab,       setInnerTab]       = useState<'image' | 'fields'>('image')
+
+  const selectedEntity = selectedId != null
+    ? (entities[selectedType] ?? []).find((e: Record<string, unknown>) => e.id === selectedId) ?? null
+    : null
+
+  // Auto-switch to fields tab when type has no image
+  useEffect(() => {
+    if (!hasImage(selectedType) && innerTab === 'image') {
+      setInnerTab('fields')
+    }
+  }, [selectedType, innerTab])
+
+  function handleTypeChange(t: EntityType) {
+    setSelectedType(t)
+    setSelectedId(null)
+  }
+
+  function handleSaved() {
+    if (selectedId != null) refreshEntity(selectedType, selectedId)
+    fetchEntities(selectedType)
+  }
+
+  const showImageTab = hasImage(selectedType)
+
+  return (
+    <div className="space-y-4">
+
+      {/* Header */}
+      <div className="glass rounded-2xl p-4 border border-white/[0.07]">
+        <div className="flex items-center gap-2 mb-0.5">
+          <Edit3 size={15} className="text-aura-indigo" />
+          <h2 className="text-sm font-bold text-aura-text">Edit Entities</h2>
+        </div>
+        <p className="text-xs text-aura-muted">
+          Select a type and entity to edit its fields{showImageTab ? ' or upload an image' : ''}.
+        </p>
+      </div>
+
+      {/* Entity selector */}
+      <div className="glass rounded-2xl p-4 border border-white/[0.07]">
+        <EntitySelector
+          selectedType={selectedType}
+          selectedId={selectedId}
+          onTypeChange={handleTypeChange}
+          onEntityChange={setSelectedId}
+        />
+      </div>
+
+      {/* Editor area */}
+      <AnimatePresence mode="wait">
+        {selectedEntity ? (
+          <motion.div
+            key={`${selectedType}-${selectedId}`}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+            className="glass rounded-2xl border border-white/[0.07] overflow-hidden"
+          >
+            {/* Entity title bar */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.05] bg-white/[0.01]">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-base">{ENTITY_TYPES[selectedType].icon}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-aura-text truncate">
+                    {displayName(selectedEntity as Record<string, unknown>, selectedType)}
+                  </p>
+                  <p className="text-[10px] text-aura-muted">
+                    {ENTITY_TYPES[selectedType].label.replace(/s$/, '')} · ID {selectedId}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedId(null)}
+                className="text-aura-muted/40 hover:text-aura-muted p-1 rounded-lg hover:bg-white/[0.05] transition-colors shrink-0"
+              >
+                <X size={13} />
+              </button>
+            </div>
+
+            {/* Sub-tabs: Image | Fields */}
+            {showImageTab && (
+              <div className="flex items-center gap-1 p-2 border-b border-white/[0.05]">
+                <TabBtn
+                  active={innerTab === 'image'}
+                  icon={ImageIcon}
+                  label="Image"
+                  onClick={() => setInnerTab('image')}
+                />
+                <TabBtn
+                  active={innerTab === 'fields'}
+                  icon={Edit3}
+                  label="Edit Fields"
+                  onClick={() => setInnerTab('fields')}
+                />
+              </div>
+            )}
+
+            {/* Content */}
+            <div className="p-4">
+              <AnimatePresence mode="wait">
+                {innerTab === 'image' && showImageTab ? (
                   <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
+                    key="image"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
                   >
-                    <div className="px-4 pb-4 space-y-3 bg-white/[0.02]">
-                      <div>
-                        <label className="block text-[10px] text-aura-muted uppercase tracking-wider mb-1">
-                          Title
-                        </label>
-                        <input
-                          type="text"
-                          value={editTitle}
-                          onChange={e => setEditTitle(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08]
-                                     text-sm text-aura-text placeholder-aura-muted/50
-                                     focus:outline-none focus:border-aura-accent/40 transition-colors"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-aura-muted uppercase tracking-wider mb-1">
-                          Subject
-                        </label>
-                        <div className="flex flex-wrap gap-1.5">
-                          <button
-                            onClick={() => setEditSubjectId(null)}
-                            className={clsx(
-                              'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
-                              editSubjectId === null
-                                ? 'bg-white/[0.08] text-aura-text border-white/[0.14]'
-                                : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12]',
-                            )}
-                          >
-                            None
-                          </button>
-                          {subjects.map(s => (
-                            <button
-                              key={s.id}
-                              onClick={() => setEditSubjectId(s.id)}
-                              className={clsx(
-                                'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
-                                editSubjectId === s.id
-                                  ? 'bg-aura-accent/10 text-aura-accent border-aura-accent/20'
-                                  : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12] hover:text-aura-text',
-                              )}
-                            >
-                              {s.nameHe}
-                              <span className="ml-1 opacity-50 text-[10px]">{s.nameEn}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <button
-                        onClick={handleSave}
-                        disabled={saving || !editTitle.trim()}
-                        className={clsx(
-                          'w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2',
-                          'bg-gradient-to-r from-aura-accent to-aura-indigo text-aura-base',
-                          'hover:opacity-90 active:scale-[0.98] transition-all duration-200',
-                          'disabled:opacity-40 disabled:cursor-not-allowed',
-                        )}
-                      >
-                        {saving
-                          ? <><Loader2 size={12} className="animate-spin" /> Saving…</>
-                          : <><Check size={12} /> Save Changes</>
-                        }
-                      </button>
-                    </div>
+                    <ImageUploader
+                      type={selectedType}
+                      entityId={selectedId!}
+                      entityName={displayName(selectedEntity as Record<string, unknown>, selectedType)}
+                      currentImage={(selectedEntity as Record<string, unknown>).image_url as string | null ?? null}
+                      onUploaded={handleSaved}
+                      onDeleted={handleSaved}
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="fields"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <EntityEditForm
+                      type={selectedType}
+                      entity={selectedEntity as Record<string, unknown>}
+                      onSaved={handleSaved}
+                    />
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
-          )
-        })}
-      </div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="empty"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="glass rounded-2xl border border-white/[0.07] p-10 flex flex-col items-center gap-3 text-center"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-white/[0.03] border border-white/[0.07] flex items-center justify-center">
+              <Edit3 size={20} className="text-aura-muted/40" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-aura-text">Select an entity</p>
+              <p className="text-xs text-aura-muted mt-1">
+                Choose a type above, then pick an entity to edit
+                {showImageTab ? ' or manage its image' : ''}.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// LecturesSection (was LectureMetaEditor)
-// ---------------------------------------------------------------------------
-interface CourseOpt   { id: number; title: string }
-interface LectureOpt  { id: number; title: string; orderInCourse: number }
+// ─────────────────────────────────────────────────────────────────────────────
+// CourseEditor — kept as a separate convenience component for the course tab
+// ─────────────────────────────────────────────────────────────────────────────
 
-function LecturesSection() {
-  const { success, error: toastError } = useToast()
-
-  const [courses,        setCourses]        = useState<CourseOpt[]>([])
-  const [lectures,       setLectures]       = useState<LectureOpt[]>([])
-  const [selectedCourse, setSelectedCourse] = useState<number | null>(null)
-  const [selectedLec,    setSelectedLec]    = useState<number | null>(null)
-
-  const [date,    setDate]    = useState('')
-  const [places,  setPlaces]  = useState<string[]>([])
-  const [years,   setYears]   = useState<string[]>([])
-
-  const [loadingMeta, setLoadingMeta] = useState(false)
-  const [saving,      setSaving]      = useState(false)
+export function CourseEditor() {
+  const { entities, loading, fetchEntities } = useEntityStore()
+  const { error: toastError, success } = useToast()
 
   useEffect(() => {
-    fetch('/api/courses')
-      .then(r => r.json())
-      .then(d => setCourses((d.courses ?? []).map((c: { id: number; title: string }) => ({ id: c.id, title: c.title }))))
-      .catch(() => {})
-  }, [])
+    if (!entities.courses) fetchEntities('courses')
+  }, [entities.courses, fetchEntities])
+
+  const [courseId,  setCourseId]  = useState<number | null>(null)
+  const [values,    setValues]    = useState<Record<string, unknown>>({})
+  const [dirty,     setDirty]     = useState(false)
+  const [saving,    setSaving]    = useState(false)
+
+  const courses = (entities.courses ?? []) as Record<string, unknown>[]
+  const course  = courseId != null ? courses.find(c => c.id === courseId) ?? null : null
 
   useEffect(() => {
-    setSelectedLec(null)
-    setLectures([])
-    if (!selectedCourse) return
-    fetch(`/api/lectures?courseId=${selectedCourse}`)
-      .then(r => r.json())
-      .then(d =>
-        setLectures(
-          ((d.lectures ?? []) as { id: number; title: string; order_in_course: number }[]).map(l => ({
-            id: l.id, title: l.title, orderInCourse: l.order_in_course,
-          })),
-        ),
+    if (course) {
+      setValues(
+        Object.fromEntries(FIELD_MAP.courses.map(f => [f.key, course[f.key] ?? null])),
       )
-      .catch(() => {})
-  }, [selectedCourse])
-
-  const loadMeta = useCallback(async (lectureId: number) => {
-    setLoadingMeta(true)
-    try {
-      const res  = await fetch(`/api/lectures/meta?lectureId=${lectureId}`)
-      const data = await res.json()
-      setDate(data.date ?? '')
-      setPlaces((data.places ?? []).map((p: { value: string }) => p.value))
-      setYears((data.years  ?? []).map((y: { value: number }) => String(y.value)))
-    } catch { /* silent */ } finally {
-      setLoadingMeta(false)
+      setDirty(false)
     }
-  }, [])
-
-  useEffect(() => {
-    if (selectedLec) loadMeta(selectedLec)
-    else { setDate(''); setPlaces([]); setYears([]) }
-  }, [selectedLec, loadMeta])
+  }, [course])
 
   async function handleSave() {
-    if (!selectedLec) return
+    if (!courseId) return
     setSaving(true)
     try {
-      const numericYears = years
-        .map(y => parseInt(y, 10))
-        .filter(y => !isNaN(y) && y > 0)
-
-      const res = await fetch('/api/lectures/meta', {
+      const res = await fetch(`/api/entities/courses/${courseId}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ lectureId: selectedLec, date: date.trim() || null, places, years: numericYears }),
+        body:    JSON.stringify(values),
       })
-      if (!res.ok) throw new Error('Save failed')
-      success('Saved', 'Lecture metadata updated successfully.')
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed')
+      setDirty(false)
+      success('Saved', 'Course updated.')
+      fetchEntities('courses')
     } catch (e) {
-      toastError('Failed', e instanceof Error ? e.message : String(e))
+      toastError('Save failed', e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
@@ -783,176 +865,192 @@ function LecturesSection() {
 
   return (
     <div className="space-y-3">
-      {/* Course selector */}
-      <div>
-        <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">Course</label>
-        <select
-          value={selectedCourse ?? ''}
-          onChange={e => setSelectedCourse(e.target.value ? Number(e.target.value) : null)}
-          className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08]
-                     text-sm text-aura-text focus:outline-none focus:border-aura-accent/40
-                     transition-colors"
-        >
-          <option value="">— select course —</option>
-          {courses.map(c => (
-            <option key={c.id} value={c.id}>{c.title}</option>
-          ))}
-        </select>
-      </div>
+      <div className="glass rounded-2xl p-4 border border-white/[0.07]">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-base">{ENTITY_TYPES.courses.icon}</span>
+          <h3 className="text-sm font-bold text-aura-text">Course Editor</h3>
+        </div>
 
-      {/* Lecture selector */}
-      {selectedCourse && (
-        <div>
-          <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">Lecture</label>
+        {/* Course picker */}
+        <div className="relative mb-4">
           <select
-            value={selectedLec ?? ''}
-            onChange={e => setSelectedLec(e.target.value ? Number(e.target.value) : null)}
-            className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08]
-                       text-sm text-aura-text focus:outline-none focus:border-aura-accent/40
-                       transition-colors"
+            value={courseId ?? ''}
+            onChange={e => setCourseId(e.target.value ? Number(e.target.value) : null)}
+            className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40"
           >
-            <option value="">— select lecture —</option>
-            {lectures.map(l => (
-              <option key={l.id} value={l.id}>{l.orderInCourse}. {l.title}</option>
+            <option value="">— select course —</option>
+            {courses.map(c => (
+              <option key={c.id as number} value={c.id as number}>{c.title as string}</option>
             ))}
           </select>
+          <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
         </div>
-      )}
 
-      {/* Meta fields */}
-      {selectedLec && (
-        loadingMeta ? (
-          <div className="flex justify-center py-4">
-            <Loader2 size={18} className="animate-spin text-aura-accent" />
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div>
-              <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">
-                Date <span className="normal-case font-normal opacity-60">(dd/mm/yyyy · optional)</span>
-              </label>
-              <input
-                type="text"
-                value={date}
-                onChange={e => setDate(e.target.value)}
-                placeholder="e.g. 15/03/2023"
-                maxLength={10}
-                className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08]
-                           text-sm text-aura-text placeholder-aura-muted/50 font-mono
-                           focus:outline-none focus:border-aura-accent/40 transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">
-                Places <span className="normal-case font-normal opacity-60">(Enter or comma to add · optional)</span>
-              </label>
-              <TagInput values={places} onChange={setPlaces} placeholder="Add a place…" />
-            </div>
-            <div>
-              <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">
-                Years <span className="normal-case font-normal opacity-60">(Enter or comma to add · optional)</span>
-              </label>
-              <TagInput
-                values={years}
-                onChange={setYears}
-                placeholder="e.g. 2024"
-                validate={v => /^\d{4}$/.test(v)}
-              />
-            </div>
+        {course && (
+          <>
+            {FIELD_MAP.courses.map(field => (
+              <div key={field.key} className="mb-3">
+                <label className="text-xs font-medium text-aura-text mb-1.5 block">
+                  {field.label}
+                  {field.hint && <span className="text-[9px] text-aura-muted/60 italic ml-1.5">{field.hint}</span>}
+                </label>
+                <FieldEditor
+                  field={field}
+                  value={values[field.key]}
+                  onChange={val => { setValues(p => ({ ...p, [field.key]: val })); setDirty(true) }}
+                  saving={saving}
+                />
+              </div>
+            ))}
+
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={!dirty || saving}
               className={clsx(
-                'w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2',
-                'bg-gradient-to-r from-aura-accent to-aura-indigo text-aura-base',
-                'hover:opacity-90 active:scale-[0.98] transition-all duration-200',
-                'disabled:opacity-40 disabled:cursor-not-allowed',
+                'w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all',
+                dirty && !saving
+                  ? 'bg-gradient-to-r from-aura-indigo to-aura-accent text-white hover:opacity-90'
+                  : 'bg-white/[0.04] text-aura-muted/40 cursor-not-allowed border border-white/[0.05]',
               )}
             >
-              {saving
-                ? <><Loader2 size={14} className="animate-spin" /> Saving…</>
-                : <><Check size={14} /> Save Metadata</>
-              }
+              {saving ? <><Loader2 size={12} className="animate-spin" /> Saving…</> : <><Save size={12} /> Save Course</>}
             </button>
-          </div>
-        )
-      )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
 
-// ===========================================================================
-// EditPanel — top-level export
-// ===========================================================================
-export function EditPanel() {
-  const [section, setSection] = useState<EditSection>('entities')
+// ─────────────────────────────────────────────────────────────────────────────
+// LectureMetaEditor — kept as convenience component
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const sections: { id: EditSection; label: string }[] = [
-    { id: 'entities', label: 'Entities' },
-    { id: 'courses',  label: 'Courses'  },
-    { id: 'lectures', label: 'Lectures' },
-  ]
+export function LectureMetaEditor() {
+  const { entities, fetchEntities } = useEntityStore()
+  const { error: toastError, success } = useToast()
+
+  useEffect(() => {
+    if (!entities.courses)  fetchEntities('courses')
+    if (!entities.lectures) fetchEntities('lectures')
+  }, [entities.courses, entities.lectures, fetchEntities])
+
+  const [courseId,   setCourseId]   = useState<number | null>(null)
+  const [lectureId,  setLectureId]  = useState<number | null>(null)
+  const [values,     setValues]     = useState<Record<string, unknown>>({})
+  const [dirty,      setDirty]      = useState(false)
+  const [saving,     setSaving]     = useState(false)
+
+  const courses  = (entities.courses  ?? []) as Record<string, unknown>[]
+  const lectures = (entities.lectures ?? []) as Record<string, unknown>[]
+  const courseLectures = courseId != null
+    ? lectures.filter(l => l.course_id === courseId)
+    : []
+  const lecture = lectureId != null
+    ? lectures.find(l => l.id === lectureId) ?? null
+    : null
+
+  useEffect(() => {
+    if (lecture) {
+      setValues(Object.fromEntries(FIELD_MAP.lectures.map(f => [f.key, lecture[f.key] ?? null])))
+      setDirty(false)
+    }
+  }, [lecture])
+
+  async function handleSave() {
+    if (!lectureId) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/entities/lectures/${lectureId}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(values),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed')
+      setDirty(false)
+      success('Saved', 'Lecture updated.')
+      fetchEntities('lectures')
+    } catch (e) {
+      toastError('Save failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
-    <div className="space-y-4">
-      {/* Section switcher */}
-      <div className="flex p-0.5 rounded-xl bg-black/30 border border-white/[0.06]">
-        {sections.map(s => (
-          <button
-            key={s.id}
-            onClick={() => setSection(s.id)}
-            className={clsx(
-              'flex-1 py-2 rounded-lg text-xs font-medium transition-all duration-200',
-              section === s.id
-                ? 'bg-aura-accent/10 text-aura-accent border border-aura-accent/20'
-                : 'text-aura-muted',
-            )}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+    <div className="space-y-3">
+      <div className="glass rounded-2xl p-4 border border-white/[0.07]">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-base">{ENTITY_TYPES.lectures.icon}</span>
+          <h3 className="text-sm font-bold text-aura-text">Lecture Editor</h3>
+          <span className="text-[9px] text-aura-muted bg-white/[0.05] px-1.5 py-0.5 rounded-full border border-white/[0.07] ml-auto">
+            No image
+          </span>
+        </div>
 
-      {/* Section content */}
-      <AnimatePresence mode="wait">
-        {section === 'entities' && (
-          <motion.div
-            key="entities"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.15 }}
+        {/* Course picker */}
+        <div className="relative mb-3">
+          <select
+            value={courseId ?? ''}
+            onChange={e => { setCourseId(e.target.value ? Number(e.target.value) : null); setLectureId(null) }}
+            className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40"
           >
-            <EntitiesSection />
-          </motion.div>
+            <option value="">— select course —</option>
+            {courses.map(c => (
+              <option key={c.id as number} value={c.id as number}>{c.title as string}</option>
+            ))}
+          </select>
+          <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+        </div>
+
+        {/* Lecture picker */}
+        {courseId != null && (
+          <div className="relative mb-4">
+            <select
+              value={lectureId ?? ''}
+              onChange={e => setLectureId(e.target.value ? Number(e.target.value) : null)}
+              className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40"
+            >
+              <option value="">— select lecture —</option>
+              {courseLectures.map(l => (
+                <option key={l.id as number} value={l.id as number}>
+                  {l.order_in_course != null ? `#${l.order_in_course} ` : ''}{l.title as string}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+          </div>
         )}
-        {section === 'courses' && (
-          <motion.div
-            key="courses"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.15 }}
-          >
-            <CoursesSection />
-          </motion.div>
+
+        {lecture && (
+          <>
+            {FIELD_MAP.lectures.map(field => (
+              <div key={field.key} className="mb-3">
+                <label className="text-xs font-medium text-aura-text mb-1.5 block">{field.label}</label>
+                <FieldEditor
+                  field={field}
+                  value={values[field.key]}
+                  onChange={val => { setValues(p => ({ ...p, [field.key]: val })); setDirty(true) }}
+                  saving={saving}
+                />
+              </div>
+            ))}
+
+            <button
+              onClick={handleSave}
+              disabled={!dirty || saving}
+              className={clsx(
+                'w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all',
+                dirty && !saving
+                  ? 'bg-gradient-to-r from-aura-indigo to-aura-accent text-white hover:opacity-90'
+                  : 'bg-white/[0.04] text-aura-muted/40 cursor-not-allowed border border-white/[0.05]',
+              )}
+            >
+              {saving ? <><Loader2 size={12} className="animate-spin" /> Saving…</> : <><Save size={12} /> Save Lecture</>}
+            </button>
+          </>
         )}
-        {section === 'lectures' && (
-          <motion.div
-            key="lectures"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.15 }}
-            className="glass rounded-2xl p-4 border border-white/[0.07]"
-          >
-            <p className="text-xs font-semibold text-aura-muted uppercase tracking-widest mb-4">
-              Lecture Date · Places · Years
-            </p>
-            <LecturesSection />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </div>
     </div>
   )
 }
