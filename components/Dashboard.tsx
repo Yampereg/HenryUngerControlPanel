@@ -223,9 +223,7 @@ export function Dashboard() {
               transition={{ duration: 0.18 }}
               className="space-y-4"
             >
-              <EntityEditor />
-              <CourseEditor />
-              <LectureMetaEditor />
+              <EditPanel />
             </motion.div>
           )}
           {tab === 'merge' && (
