@@ -7,6 +7,7 @@ import {
   BookOpen,
   Check,
   ChevronRight,
+  Clock,
   FolderOpen,
   Loader2,
   RefreshCw,
@@ -28,7 +29,7 @@ interface LectureItem   {
   status:        'none' | 'pending' | 'running' | 'succeeded' | 'failed'
   jobId:         number | null
 }
-interface ActiveJob     { courseId: number; courseTitle: string; lectureNumber: number; status: string }
+interface ActiveJob     { courseId: number; courseTitle: string; lectureNumber: number; status: string; startedAt: string | null }
 interface LastCompleted { courseId: number; courseTitle: string; lectureNumber: number; status: string; completedAt: string | null }
 interface UploadStatusData {
   active:             ActiveJob[]
@@ -39,7 +40,7 @@ interface UploadStatusData {
 type Phase = 'loading' | 'home' | 'form' | 'manage'
 
 // ---------------------------------------------------------------------------
-// Relative time helper
+// Helpers
 // ---------------------------------------------------------------------------
 function formatRelative(iso: string | null): string {
   if (!iso) return ''
@@ -50,6 +51,22 @@ function formatRelative(iso: string | null): string {
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}h ago`
   return new Date(iso).toLocaleDateString()
+}
+
+/** Elapsed time since a given ISO string, updated every second via a live clock. */
+function useElapsed(startedAt: string | null): string {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!startedAt) return
+    const id = setInterval(() => setTick(t => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+
+  if (!startedAt) return ''
+  const secs  = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
+  const m     = Math.floor(secs / 60)
+  const s     = secs % 60
+  return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +88,37 @@ function StatusBadge({ status }: { status: LectureItem['status'] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Active job row with live elapsed timer
+// ---------------------------------------------------------------------------
+function ActiveJobRow({ job }: { job: ActiveJob }) {
+  const elapsed = useElapsed(job.status === 'running' ? job.startedAt : null)
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5">
+      <Loader2
+        size={12}
+        className={clsx(
+          'shrink-0',
+          job.status === 'running' ? 'animate-spin text-aura-accent' : 'text-aura-muted',
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-aura-text truncate">{job.courseTitle}</p>
+        <p className="text-[10px] text-aura-muted">
+          Lecture {job.lectureNumber} · {job.status === 'running' ? 'in progress' : 'queued'}
+        </p>
+      </div>
+      {job.status === 'running' && elapsed && (
+        <div className="flex items-center gap-1 shrink-0 text-[10px] text-aura-accent font-mono">
+          <Clock size={10} />
+          {elapsed}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 export function CourseUploader() {
@@ -80,136 +128,173 @@ export function CourseUploader() {
   const [dirs,            setDirs]            = useState<R2Dir[]>([])
   const [subjects,        setSubjects]        = useState<Subject[]>([])
   const [managedCourses,  setManagedCourses]  = useState<ManagedCourse[]>([])
+  const [uploadStatus,    setUploadStatus]    = useState<UploadStatusData | null>(null)
   const [selectedDir,     setSelectedDir]     = useState<R2Dir | null>(null)
-  const [currentCourse,   setCurrentCourse]   = useState<ManagedCourse | null>(null)
-  const [lectures,        setLectures]        = useState<LectureItem[]>([])
-  const [loadingLectures, setLoadingLectures] = useState(false)
   const [title,           setTitle]           = useState('')
   const [subjectId,       setSubjectId]       = useState<number | null>(null)
-  const [imageFile,       setImageFile]       = useState<File | null>(null)
-  const [imagePreview,    setImagePreview]    = useState<string | null>(null)
   const [submitting,      setSubmitting]      = useState(false)
+  const [currentCourse,   setCurrentCourse]   = useState<ManagedCourse | null>(null)
+  const [lectures,        setLectures]        = useState<LectureItem[]>([])
   const [queuingLecture,  setQueuingLecture]  = useState<number | null>(null)
-  const [uploadStatus,    setUploadStatus]    = useState<UploadStatusData | null>(null)
+  const [loadingLectures, setLoadingLectures] = useState(false)
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // -------------------------------------------------------------------------
-  // Data loaders
+  // Poll upload status (global queue)
+  // -------------------------------------------------------------------------
+  const fetchUploadStatus = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/upload-jobs')
+      const data = await res.json()
+      setUploadStatus(data)
+
+      // Refresh managed courses so upload count stays in sync
+      const mRes  = await fetch('/api/courses/managed')
+      const mData = await mRes.json()
+      if (mData.courses) {
+        setManagedCourses(
+          mData.courses.map((c: {
+            id: number; title: string; r2_dir: string; subject_id: number | null
+            lecture_count: number; r2_lecture_count: number | null
+          }) => ({
+            id: c.id, title: c.title, r2Dir: c.r2_dir, subjectId: c.subject_id,
+            lectureCount: c.lecture_count, r2LectureCount: c.r2_lecture_count,
+          })),
+        )
+      }
+    } catch { /* silent */ }
+  }, [])
+
+  useEffect(() => {
+    pollRef.current = setInterval(fetchUploadStatus, 5_000)
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [fetchUploadStatus])
+
+  // -------------------------------------------------------------------------
+  // Load home data
   // -------------------------------------------------------------------------
   const loadHome = useCallback(async () => {
     setPhase('loading')
     try {
-      const [dirsRes, subjectsRes, managedRes, jobsRes] = await Promise.all([
-        fetch('/api/r2-dirs'),
-        fetch('/api/subjects'),
-        fetch('/api/courses/managed'),
-        fetch('/api/upload-jobs'),
+      const [dirsRes, subjectsRes, managedRes, statusRes] = await Promise.all([
+        fetch('/api/r2-dirs').then(r => r.json()),
+        fetch('/api/subjects').then(r => r.json()),
+        fetch('/api/courses/managed').then(r => r.json()),
+        fetch('/api/upload-jobs').then(r => r.json()),
       ])
-      const dirsData     = await dirsRes.json()
-      const subjectsData = await subjectsRes.json()
-      const managedData  = await managedRes.json()
-      const jobsData     = await jobsRes.json()
 
-      setDirs(dirsData.dirs ?? [])
+      setDirs(
+        (dirsRes.dirs ?? []).map((d: { dir: string; lectureCount: number; defaultTitle: string }) => d),
+      )
       setSubjects(
-        ((subjectsData.subjects ?? []) as { id: number; name_en: string; name_he: string }[]).map(s => ({
+        (subjectsRes.subjects ?? []).map((s: { id: number; name_en: string; name_he: string }) => ({
           id: s.id, nameEn: s.name_en, nameHe: s.name_he,
         })),
       )
       setManagedCourses(
-        ((managedData.courses ?? []) as { id: number; title: string; r2_dir: string; subject_id: number | null; lecture_count: number; r2_lecture_count: number | null }[]).map(c => ({
+        (managedRes.courses ?? []).map((c: {
+          id: number; title: string; r2_dir: string; subject_id: number | null
+          lecture_count: number; r2_lecture_count: number | null
+        }) => ({
           id: c.id, title: c.title, r2Dir: c.r2_dir, subjectId: c.subject_id,
-          lectureCount: c.lecture_count ?? 0, r2LectureCount: c.r2_lecture_count ?? null,
+          lectureCount: c.lecture_count, r2LectureCount: c.r2_lecture_count,
         })),
       )
-      setUploadStatus({
-        active:             jobsData.active ?? [],
-        lastCompleted:      jobsData.lastCompleted ?? null,
-        succeededPerCourse: jobsData.succeededPerCourse ?? {},
-      })
-    } catch {
-      toastError('Load failed', 'Could not load course data')
+      setUploadStatus(statusRes)
+      setPhase('home')
+    } catch (e) {
+      toastError('Failed', e instanceof Error ? e.message : String(e))
+      setPhase('home')
     }
-    setPhase('home')
   }, [toastError])
 
+  useEffect(() => { loadHome() }, [loadHome])
+
+  // -------------------------------------------------------------------------
+  // Load lectures for manage phase — uses live R2 count
+  // -------------------------------------------------------------------------
   const loadLectures = useCallback(async (courseId: number) => {
     setLoadingLectures(true)
     try {
       const res  = await fetch(`/api/course-lectures?courseId=${courseId}`)
       const data = await res.json()
-      setLectures(
-        (data.lectures ?? []) as LectureItem[],
-      )
-    } catch { /* silent */ } finally {
+      setLectures(data.lectures ?? [])
+
+      // Also refresh the r2LectureCount for this course live from the API
+      const mRes  = await fetch('/api/courses/managed')
+      const mData = await mRes.json()
+      if (mData.courses) {
+        setManagedCourses(
+          mData.courses.map((c: {
+            id: number; title: string; r2_dir: string; subject_id: number | null
+            lecture_count: number; r2_lecture_count: number | null
+          }) => ({
+            id: c.id, title: c.title, r2Dir: c.r2_dir, subjectId: c.subject_id,
+            lectureCount: c.lecture_count, r2LectureCount: c.r2_lecture_count,
+          })),
+        )
+        // Update currentCourse with fresh counts
+        setCurrentCourse(prev => {
+          if (!prev) return prev
+          const fresh = mData.courses.find((c: { id: number }) => c.id === prev.id)
+          if (!fresh) return prev
+          return {
+            ...prev,
+            lectureCount:   fresh.lecture_count,
+            r2LectureCount: fresh.r2_lecture_count,
+          }
+        })
+      }
+    } catch (e) {
+      toastError('Failed', e instanceof Error ? e.message : String(e))
+    } finally {
       setLoadingLectures(false)
     }
-  }, [])
-
-  useEffect(() => { loadHome() }, [loadHome])
-
-  // Auto-refresh lectures every 5 s while in manage phase
-  useEffect(() => {
-    if (phase !== 'manage' || !currentCourse) return
-    const id = setInterval(() => loadLectures(currentCourse.id), 5_000)
-    return () => clearInterval(id)
-  }, [phase, currentCourse, loadLectures])
+  }, [toastError])
 
   // -------------------------------------------------------------------------
-  // Handlers
+  // Pick R2 dir → go to form
+  // -------------------------------------------------------------------------
+  async function handlePickDir(dir: R2Dir) {
+    setSelectedDir(dir)
+    setTitle(dir.defaultTitle)
+    setSubjectId(null)
+    setPhase('form')
+  }
+
+  // -------------------------------------------------------------------------
+  // Go to manage a course
   // -------------------------------------------------------------------------
   function goToManage(course: ManagedCourse) {
     setCurrentCourse(course)
-    setLectures([])
     setPhase('manage')
     loadLectures(course.id)
   }
 
-  function handlePickDir(dir: R2Dir) {
-    setSelectedDir(dir)
-    setTitle(dir.defaultTitle)
-    setSubjectId(null)
-    setImageFile(null)
-    setImagePreview(null)
-    setPhase('form')
-  }
-
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
-  }
-
-  function clearImage() {
-    setImageFile(null)
-    setImagePreview(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
-
+  // -------------------------------------------------------------------------
+  // Create course
+  // -------------------------------------------------------------------------
   async function handleCreateCourse() {
     if (!selectedDir || !title.trim()) return
     setSubmitting(true)
     try {
-      const fd = new FormData()
-      fd.append('r2Dir',  selectedDir.dir)
-      fd.append('title',  title.trim())
-      if (subjectId) fd.append('subjectId', String(subjectId))
-      if (imageFile) fd.append('image', imageFile)
-
-      const res  = await fetch('/api/courses/create', { method: 'POST', body: fd })
+      const res  = await fetch('/api/courses/create', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ r2Dir: selectedDir.dir, title: title.trim(), subjectId }),
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
 
-      success('Course created!', `"${title.trim()}" is ready — queue lectures below.`)
+      success('Created!', `"${title.trim()}" is ready — queue lectures below.`)
 
       const newCourse: ManagedCourse = {
-        id: data.courseId as number,
-        title: title.trim(),
-        r2Dir: selectedDir.dir,
+        id:             data.courseId as number,
+        title:          title.trim(),
+        r2Dir:          selectedDir.dir,
         subjectId,
-        lectureCount: 0,
+        lectureCount:   0,
         r2LectureCount: selectedDir.lectureCount,
       }
       goToManage(newCourse)
@@ -220,6 +305,9 @@ export function CourseUploader() {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Queue lecture
+  // -------------------------------------------------------------------------
   async function handleQueueLecture(lectureNumber: number) {
     if (!currentCourse) return
     setQueuingLecture(lectureNumber)
@@ -232,7 +320,6 @@ export function CourseUploader() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
 
-      // Optimistic update
       setLectures(prev =>
         prev.map(l =>
           l.lectureNumber === lectureNumber
@@ -241,7 +328,6 @@ export function CourseUploader() {
         ),
       )
       success('Queued!', `Lecture ${lectureNumber} added to transcription queue.`)
-      // Poll quickly so status updates as soon as the daemon picks it up
       setTimeout(() => loadLectures(currentCourse.id), 3_000)
       setTimeout(() => loadLectures(currentCourse.id), 8_000)
     } catch (e) {
@@ -337,27 +423,13 @@ export function CourseUploader() {
               <div className="glass rounded-2xl border border-white/[0.07] overflow-hidden">
                 <div className="px-4 py-3 border-b border-white/[0.05]">
                   <p className="text-xs font-semibold text-aura-muted uppercase tracking-widest">
-                    {uploadStatus.active.length > 0 ? 'Uploading Now' : 'Last Upload'}
+                    {uploadStatus.active.length > 0 ? 'Upload Queue' : 'Last Upload'}
                   </p>
                 </div>
                 {uploadStatus.active.length > 0 ? (
                   <div className="divide-y divide-white/[0.03]">
                     {uploadStatus.active.map((j, i) => (
-                      <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                        <Loader2
-                          size={12}
-                          className={clsx(
-                            'shrink-0',
-                            j.status === 'running' ? 'animate-spin text-aura-accent' : 'text-aura-muted',
-                          )}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs text-aura-text truncate">{j.courseTitle}</p>
-                          <p className="text-[10px] text-aura-muted">
-                            Lecture {j.lectureNumber} · {j.status === 'running' ? 'in progress' : 'queued'}
-                          </p>
-                        </div>
-                      </div>
+                      <ActiveJobRow key={i} job={j} />
                     ))}
                   </div>
                 ) : uploadStatus.lastCompleted ? (
@@ -395,16 +467,12 @@ export function CourseUploader() {
                 <div className="divide-y divide-white/[0.03]">
                   {managedCourses.map(c => {
                     const sub      = subjectFor(c.subjectId)
-                    // Prefer R2 count as authoritative total; fall back to DB count
-                    // (manually-uploaded courses have 0 R2 sub-dirs → show 100%)
+                    // r2LectureCount is always live from R2 (re-fetched on every load)
                     const r2Total  = c.r2LectureCount && c.r2LectureCount > 0 ? c.r2LectureCount : null
                     const total    = r2Total ?? (c.lectureCount > 0 ? c.lectureCount : null)
-                    const uploaded = Math.max(c.lectureCount, uploadStatus?.succeededPerCourse[c.id] ?? 0)
-                    const pct      = total != null && total > 0 ? Math.round((uploaded / total) * 100) : 0
-                    const subtitle = [
-                      sub?.nameHe,
-                      total != null ? `${uploaded}/${total} uploaded` : undefined,
-                    ].filter(Boolean).join(' · ')
+                    const uploaded = uploadStatus?.succeededPerCourse?.[c.id] ?? c.lectureCount
+                    const pct      = total ? Math.min(100, Math.round((uploaded / total) * 100)) : null
+
                     return (
                       <button
                         key={c.id}
@@ -412,27 +480,27 @@ export function CourseUploader() {
                         className="w-full flex items-center gap-3 px-4 py-3
                                    hover:bg-white/[0.02] transition-colors text-left"
                       >
-                        <BookOpen size={13} className="text-aura-muted shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm text-aura-text truncate">{c.title}</p>
-                          {subtitle && (
-                            <p className="text-[10px] text-aura-muted">{subtitle}</p>
+                        <BookOpen size={14} className="text-aura-accent shrink-0" />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs text-aura-text truncate">{c.title}</p>
+                            <span className="text-[10px] text-aura-muted shrink-0 font-mono">
+                              {uploaded}/{total ?? '?'}
+                            </span>
+                          </div>
+                          {sub && (
+                            <p className="text-[10px] text-aura-muted">{sub.nameHe}</p>
                           )}
-                          {total != null && (
-                            <div className="mt-1.5 h-1 w-full bg-white/[0.06] rounded-full overflow-hidden">
+                          {pct !== null && (
+                            <div className="h-0.5 rounded-full bg-white/[0.05] overflow-hidden">
                               <div
-                                className={clsx(
-                                  'h-full rounded-full transition-all duration-500',
-                                  pct === 100
-                                    ? 'bg-aura-success'
-                                    : 'bg-gradient-to-r from-aura-accent to-aura-indigo',
-                                )}
+                                className="h-full bg-aura-accent rounded-full transition-all duration-500"
                                 style={{ width: `${pct}%` }}
                               />
                             </div>
                           )}
                         </div>
-                        <ChevronRight size={13} className="text-aura-muted shrink-0" />
+                        <ChevronRight size={12} className="text-aura-muted shrink-0" />
                       </button>
                     )
                   })}
@@ -442,134 +510,99 @@ export function CourseUploader() {
           </motion.div>
         )}
 
-        {/* ── Create form ── */}
+        {/* ── Form ── */}
         {phase === 'form' && selectedDir && (
           <motion.div
             key="form"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
-            className="glass rounded-2xl p-4 border border-white/[0.07] space-y-4"
+            className="space-y-4"
           >
-            {/* Back + folder name */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPhase('home')}
-                className="text-aura-muted hover:text-aura-text transition-colors"
-              >
-                <ArrowLeft size={16} />
-              </button>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-aura-accent/10
-                               text-aura-accent border border-aura-accent/20 font-mono">
-                {selectedDir.dir}
-              </span>
-              <span className="text-xs text-aura-muted ml-auto">
-                {selectedDir.lectureCount} lectures
-              </span>
-            </div>
-
-            {/* Course name */}
-            <div>
-              <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">
-                Course Name
-              </label>
-              <input
-                type="text"
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                placeholder="Course title…"
-                className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]
-                           text-sm text-aura-text placeholder-aura-muted/50
-                           focus:outline-none focus:border-aura-accent/40 transition-colors"
-              />
-            </div>
-
-            {/* Subject pills */}
-            <div>
-              <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">
-                Subject
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  onClick={() => setSubjectId(null)}
-                  className={clsx(
-                    'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
-                    subjectId === null
-                      ? 'bg-white/[0.08] text-aura-text border-white/[0.14]'
-                      : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12]',
-                  )}
-                >
-                  None
-                </button>
-                {subjects.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => setSubjectId(s.id)}
-                    className={clsx(
-                      'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
-                      subjectId === s.id
-                        ? 'bg-aura-accent/10 text-aura-accent border-aura-accent/20'
-                        : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12] hover:text-aura-text',
-                    )}
-                  >
-                    {s.nameHe}
-                    <span className="ml-1 opacity-50 text-[10px]">{s.nameEn}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Image picker */}
-            <div>
-              <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">
-                Course Image (optional)
-              </label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleImageChange}
-              />
-              {imagePreview ? (
-                <div className="relative w-full h-28 rounded-xl overflow-hidden border border-white/[0.08]">
-                  <img src={imagePreview} alt="" className="w-full h-full object-cover" />
-                  <button
-                    onClick={clearImage}
-                    className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60
-                               flex items-center justify-center hover:bg-black/80 transition-colors"
-                  >
-                    <X size={11} className="text-white" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl
-                             border border-dashed border-white/[0.12] text-aura-muted
-                             hover:border-aura-accent/30 hover:text-aura-text transition-all"
-                >
-                  <Upload size={14} />
-                  <span className="text-xs">Choose image…</span>
-                </button>
-              )}
-            </div>
-
-            {/* Submit */}
             <button
-              onClick={handleCreateCourse}
-              disabled={submitting || !title.trim()}
-              className={clsx(
-                'w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2',
-                'bg-gradient-to-r from-aura-accent to-aura-indigo text-aura-base',
-                'hover:opacity-90 active:scale-[0.98] transition-all duration-200',
-                'disabled:opacity-40 disabled:cursor-not-allowed',
-              )}
+              onClick={() => setPhase('home')}
+              className="flex items-center gap-1.5 text-xs text-aura-muted hover:text-aura-text transition-colors"
             >
-              {submitting
-                ? <><Loader2 size={14} className="animate-spin" /> Creating…</>
-                : <><Check size={14} /> Create Course</>
-              }
+              <ArrowLeft size={12} /> Back
             </button>
+
+            <div className="glass rounded-2xl p-4 border border-white/[0.07] space-y-4">
+              <div className="flex items-center gap-2">
+                <FolderOpen size={16} className="text-aura-accent" />
+                <div>
+                  <p className="text-sm font-semibold text-aura-text">{selectedDir.dir}</p>
+                  <p className="text-[10px] text-aura-muted font-mono">{selectedDir.lectureCount} lectures detected</p>
+                </div>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">
+                  Course Title
+                </label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  placeholder="Enter course title…"
+                  className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08]
+                             text-sm text-aura-text placeholder-aura-muted/50
+                             focus:outline-none focus:border-aura-accent/40 transition-colors"
+                />
+              </div>
+
+              {/* Subject */}
+              {subjects.length > 0 && (
+                <div>
+                  <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">
+                    Subject <span className="normal-case font-normal opacity-60">(optional)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => setSubjectId(null)}
+                      className={clsx(
+                        'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
+                        subjectId === null
+                          ? 'bg-white/[0.08] text-aura-text border-white/[0.14]'
+                          : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12]',
+                      )}
+                    >
+                      None
+                    </button>
+                    {subjects.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => setSubjectId(s.id)}
+                        className={clsx(
+                          'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
+                          subjectId === s.id
+                            ? 'bg-aura-accent/10 text-aura-accent border-aura-accent/20'
+                            : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12] hover:text-aura-text',
+                        )}
+                      >
+                        {s.nameHe}
+                        <span className="ml-1 opacity-50 text-[10px]">{s.nameEn}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={handleCreateCourse}
+                disabled={submitting || !title.trim()}
+                className={clsx(
+                  'w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2',
+                  'bg-gradient-to-r from-aura-accent to-aura-indigo text-aura-base',
+                  'hover:opacity-90 active:scale-[0.98] transition-all duration-200',
+                  'disabled:opacity-40 disabled:cursor-not-allowed',
+                )}
+              >
+                {submitting
+                  ? <><Loader2 size={12} className="animate-spin" /> Creating…</>
+                  : <><Upload size={12} /> Create Course</>
+                }
+              </button>
+            </div>
           </motion.div>
         )}
 
@@ -579,88 +612,72 @@ export function CourseUploader() {
             key="manage"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
-            className="space-y-3"
+            className="space-y-4"
           >
-            {/* Course header */}
-            <div className="glass rounded-2xl p-4 border border-white/[0.07]">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setPhase('home'); loadHome() }}
-                  className="text-aura-muted hover:text-aura-text transition-colors"
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-aura-text truncate">
-                    {currentCourse.title}
+            <button
+              onClick={() => { setPhase('home'); loadHome() }}
+              className="flex items-center gap-1.5 text-xs text-aura-muted hover:text-aura-text transition-colors"
+            >
+              <ArrowLeft size={12} /> Back
+            </button>
+
+            <div className="glass rounded-2xl border border-white/[0.07] overflow-hidden">
+              <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-aura-text truncate">{currentCourse.title}</p>
+                  <p className="text-[10px] text-aura-muted font-mono mt-0.5">
+                    {/* Always show live count: succeeded / r2 total */}
+                    {(uploadStatus?.succeededPerCourse?.[currentCourse.id] ?? currentCourse.lectureCount)}
+                    {' / '}
+                    {currentCourse.r2LectureCount ?? currentCourse.lectureCount} uploaded
                   </p>
-                  {subjectFor(currentCourse.subjectId) && (
-                    <p className="text-[10px] text-aura-muted">
-                      {subjectFor(currentCourse.subjectId)!.nameHe}
-                    </p>
-                  )}
                 </div>
                 <button
                   onClick={() => loadLectures(currentCourse.id)}
-                  disabled={loadingLectures}
+                  className="text-aura-muted hover:text-aura-text transition-colors shrink-0"
                   title="Refresh"
-                  className="text-aura-muted hover:text-aura-text transition-colors disabled:opacity-40"
                 >
                   <RefreshCw size={13} className={loadingLectures ? 'animate-spin' : ''} />
                 </button>
               </div>
-              <p className="text-[10px] text-aura-muted font-mono mt-1.5">
-                {currentCourse.r2Dir}/
-              </p>
-            </div>
 
-            {/* Lectures list */}
-            <div className="glass rounded-2xl border border-white/[0.07] overflow-hidden">
-              <div className="px-4 py-3 border-b border-white/[0.05]">
-                <p className="text-xs font-semibold text-aura-muted uppercase tracking-widest">
-                  Lectures
-                </p>
-              </div>
-
-              {loadingLectures && lectures.length === 0 ? (
+              {loadingLectures ? (
                 <div className="flex justify-center py-8">
-                  <Loader2 size={18} className="animate-spin text-aura-muted" />
+                  <Loader2 size={18} className="animate-spin text-aura-accent" />
                 </div>
               ) : (
                 <div className="divide-y divide-white/[0.03]">
-                  {lectures.map(lec => {
-                    const canQueue  = lec.status === 'none' || lec.status === 'failed'
-                    const isQueuing = queuingLecture === lec.lectureNumber
-                    return (
-                      <div key={lec.lectureNumber} className="flex items-center gap-3 px-4 py-3">
-                        <span className="text-[11px] font-mono text-aura-muted w-5 shrink-0 text-right">
-                          {lec.lectureNumber}
-                        </span>
-                        <span className="flex-1 text-xs text-aura-text">
-                          Lecture {lec.lectureNumber}
-                        </span>
-                        <StatusBadge status={lec.status} />
-                        {canQueue && (
-                          <button
-                            onClick={() => handleQueueLecture(lec.lectureNumber)}
-                            disabled={isQueuing}
-                            className={clsx(
-                              'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium',
-                              'border border-aura-accent/25 text-aura-accent',
-                              'hover:bg-aura-accent/10 transition-all duration-150',
-                              'disabled:opacity-40 disabled:cursor-not-allowed',
-                            )}
-                          >
-                            {isQueuing
-                              ? <Loader2 size={10} className="animate-spin" />
-                              : <Zap size={10} />
-                            }
-                            {lec.status === 'failed' ? 'Retry' : 'Queue'}
-                          </button>
-                        )}
+                  {lectures.map(l => (
+                    <div
+                      key={l.lectureNumber}
+                      className="flex items-center gap-3 px-4 py-2.5"
+                    >
+                      <span className="text-[10px] text-aura-muted font-mono w-6 shrink-0 text-right">
+                        {l.lectureNumber}
+                      </span>
+                      <div className="flex-1">
+                        <StatusBadge status={l.status} />
                       </div>
-                    )
-                  })}
+                      {(l.status === 'none' || l.status === 'failed') && (
+                        <button
+                          onClick={() => handleQueueLecture(l.lectureNumber)}
+                          disabled={queuingLecture === l.lectureNumber}
+                          className={clsx(
+                            'flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium',
+                            'bg-aura-accent/10 text-aura-accent border border-aura-accent/20',
+                            'hover:bg-aura-accent/20 transition-colors',
+                            'disabled:opacity-40 disabled:cursor-not-allowed',
+                          )}
+                        >
+                          {queuingLecture === l.lectureNumber
+                            ? <Loader2 size={10} className="animate-spin" />
+                            : <Zap size={10} />
+                          }
+                          {l.status === 'failed' ? 'Retry' : 'Queue'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

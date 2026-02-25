@@ -1,10 +1,12 @@
+// LOCATION: app/api/courses/managed/route.ts  (replace existing)
+
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { listR2Prefixes } from '@/lib/r2'
 
 // GET /api/courses/managed
 // Returns courses that have an r2_dir set, with actual lecture counts from the DB
-// and the total available lecture count from R2 (for progress bar).
+// and the LIVE total available lecture count from R2 (always re-fetched, never stale).
 export async function GET() {
   const { data, error } = await supabase
     .from('courses')
@@ -19,7 +21,7 @@ export async function GET() {
   const courses = data ?? []
   if (courses.length === 0) return NextResponse.json({ courses: [] })
 
-  // Count actual lecture rows per course (catches manually-created lectures too)
+  // Count actual lecture rows per course
   const courseIds = courses.map(c => c.id)
   const { data: lectureRows } = await supabase
     .from('lectures')
@@ -31,10 +33,10 @@ export async function GET() {
     lectureCounts[row.course_id] = (lectureCounts[row.course_id] ?? 0) + 1
   }
 
-  // Count R2 sub-directories per course (= total lectures available in R2)
+  // Count R2 sub-directories per course — ALWAYS live, never cached
+  // This ensures the total is correct even after manually deleting R2 directories.
   const r2Counts = await Promise.all(
     courses.map(async c => {
-      // Trim any trailing slash so we never call listR2Prefixes with a double-slash
       const r2Dir = (c.r2_dir as string).replace(/\/+$/, '')
       try {
         const prefixes = await listR2Prefixes(`${r2Dir}/`)
@@ -56,6 +58,7 @@ export async function GET() {
     courses: courses.map(c => ({
       ...c,
       lecture_count:    lectureCounts[c.id] ?? 0,
+      // null means R2 dir not accessible; use DB count as fallback in UI
       r2_lecture_count: r2CountMap[c.id] ?? null,
     })),
   })

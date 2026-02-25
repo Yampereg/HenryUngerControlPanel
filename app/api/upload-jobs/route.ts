@@ -1,3 +1,5 @@
+// LOCATION: app/api/upload-jobs/route.ts  (replace existing)
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
@@ -8,6 +10,7 @@ interface JobRow {
   lecture_number: number
   completed_at:   string | null
   created_at:     string | null
+  started_at:     string | null
 }
 
 interface CourseRow {
@@ -20,7 +23,7 @@ interface CourseRow {
 export async function GET() {
   const { data: jobRows, error: jobErr } = await supabase
     .from('upload_jobs')
-    .select('id, course_id, status, lecture_number, completed_at, created_at')
+    .select('id, course_id, status, lecture_number, completed_at, created_at, started_at')
     .order('created_at', { ascending: false })
 
   if (jobErr) {
@@ -74,14 +77,17 @@ export async function GET() {
     else if (row.status === 'pending')   g.pending++
   }
 
-  // Active jobs (running or pending), preserve created_at order (desc already)
+  // Active jobs (running or pending), sorted by created_at ascending (oldest first)
+  // Include started_at so the UI can show elapsed time
   const active = rows
     .filter(r => r.status === 'running' || r.status === 'pending')
+    .sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
     .map(r => ({
       courseId:      r.course_id,
       courseTitle:   courseMap.get(r.course_id) ?? `Course ${r.course_id}`,
       lectureNumber: r.lecture_number,
       status:        r.status,
+      startedAt:     r.started_at ?? null,
     }))
 
   // Most recent terminal job
@@ -154,7 +160,7 @@ export async function POST(req: NextRequest) {
     // Re-queue a failed job
     const { error: updateErr } = await supabase
       .from('upload_jobs')
-      .update({ status: 'pending', retry_count: 0, output: null, completed_at: null })
+      .update({ status: 'pending', retry_count: 0, output: null, completed_at: null, started_at: null })
       .eq('id', existingJob.id)
 
     if (updateErr) {
