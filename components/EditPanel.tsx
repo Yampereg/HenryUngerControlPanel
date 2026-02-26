@@ -29,8 +29,11 @@ import clsx from 'clsx'
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Extended type that includes entity types + lectures + themes (which are editable but not in ENTITY_TYPES) */
+type EditableType = EntityType | 'lectures' | 'themes'
+
 /** Entity types that NEVER have an image */
-const NO_IMAGE_TYPES: EntityType[] = ['lectures', 'themes']
+const NO_IMAGE_TYPES: EditableType[] = ['lectures', 'themes']
 
 type FieldDef = {
   key:          string
@@ -41,7 +44,7 @@ type FieldDef = {
   hint?:        string
 }
 
-const FIELD_MAP: Record<EntityType, FieldDef[]> = {
+const FIELD_MAP: Record<EditableType, FieldDef[]> = {
   directors: [
     { key: 'name',        label: 'Name',        type: 'text',     required: true, placeholder: 'Full name' },
     { key: 'hebrew_name', label: 'Hebrew Name',  type: 'text',     placeholder: 'שם בעברית' },
@@ -106,7 +109,7 @@ function entityDisplayName(entity: EntityRow, type: EntityType): string {
   return (entity[cfg.nameField] as string) ?? `#${entity.id}`
 }
 
-function supportsImage(type: EntityType): boolean {
+function supportsImage(type: EditableType): boolean {
   return !NO_IMAGE_TYPES.includes(type)
 }
 
@@ -855,7 +858,7 @@ export function LectureMetaEditor() {
   return (
     <div className="glass rounded-2xl p-4 border border-white/[0.07] space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-base">{ENTITY_TYPES.lectures.icon}</span>
+        <span className="text-base">🎤</span>
         <h3 className="text-sm font-bold text-aura-text">Lecture Editor</h3>
         <span className="ml-auto text-[9px] text-aura-muted/50 bg-white/[0.04] px-1.5 py-0.5 rounded-full border border-white/[0.06]">no image</span>
       </div>
