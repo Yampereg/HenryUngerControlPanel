@@ -206,9 +206,10 @@ export function GeneratePanel() {
   const [note,    setNote]    = useState('')
 
   // ── result state ─────────────────────────────────────────────────────────
-  const [phase,   setPhase]   = useState<Phase>('idle')
-  const [result,  setResult]  = useState<Record<string, unknown> | null>(null)
-  const [pdfJob,  setPdfJob]  = useState<{ id: number; status: string } | null>(null)
+  const [phase,            setPhase]            = useState<Phase>('idle')
+  const [result,           setResult]           = useState<Record<string, unknown> | null>(null)
+  const [pdfJob,           setPdfJob]           = useState<{ id: number; status: string } | null>(null)
+  const [showPdfAfterTitle, setShowPdfAfterTitle] = useState(false)
 
   // ── load courses on mount ─────────────────────────────────────────────────
   useEffect(() => {
@@ -272,6 +273,7 @@ export function GeneratePanel() {
     setPhase('idle')
     setResult(null)
     setPdfJob(null)
+    setShowPdfAfterTitle(false)
   }
 
   // ── generate ─────────────────────────────────────────────────────────────
@@ -323,12 +325,33 @@ export function GeneratePanel() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Confirm failed')
 
+      if (genType === 'lecture_title' && action === 'confirm') {
+        setShowPdfAfterTitle(true)
+      } else {
+        setTimeout(resetResult, 1500)
+      }
       success('Saved', 'Changes applied successfully.')
       setPhase('done')
-      setTimeout(resetResult, 1500)
     } catch (err) {
       showError('Failed to save', err instanceof Error ? err.message : String(err))
       setPhase('preview')
+    }
+  }
+
+  // ── generate PDF after title acceptance ──────────────────────────────────
+  async function handleGeneratePdf() {
+    setShowPdfAfterTitle(false)
+    try {
+      const res  = await fetch('/api/generate', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ type: 'summary_pdf', lectureId: Number(lectureId) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to queue PDF')
+      setPdfJob({ id: data.jobId, status: 'pending' })
+    } catch (err) {
+      showError('PDF failed', err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -513,8 +536,8 @@ export function GeneratePanel() {
           </motion.div>
         )}
 
-        {/* PDF queued */}
-        {phase === 'preview' && genType === 'summary_pdf' && pdfJob && (
+        {/* PDF queued (from direct PDF generation or post-title PDF button) */}
+        {pdfJob && ((phase === 'preview' && genType === 'summary_pdf') || phase === 'done') ? (
           <motion.div
             key="pdf-status"
             initial={{ opacity: 0, y: 8 }}
@@ -544,23 +567,44 @@ export function GeneratePanel() {
             </div>
             {pdfJob.status !== 'done' && pdfJob.status !== 'failed' && (
               <p className="text-xs text-aura-muted mt-1.5">
-                The Transcriber daemon will pick this up within a few seconds.
+                The PDF will be generated in the background.
               </p>
             )}
           </motion.div>
-        )}
+        ) : null}
 
         {/* Done flash */}
-        {phase === 'done' && (
+        {phase === 'done' && !pdfJob && (
           <motion.div
             key="done"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="glass rounded-2xl p-4 border border-aura-success/30 flex items-center gap-2"
+            className="glass rounded-2xl p-4 border border-aura-success/30"
           >
-            <Check size={16} className="text-aura-success" />
-            <span className="text-sm font-semibold text-aura-success">Changes saved!</span>
+            <div className="flex items-center gap-2">
+              <Check size={16} className="text-aura-success" />
+              <span className="text-sm font-semibold text-aura-success">Changes saved!</span>
+              {!showPdfAfterTitle && (
+                <button onClick={resetResult} className="ml-auto text-aura-muted"><X size={14} /></button>
+              )}
+            </div>
+            {showPdfAfterTitle && (
+              <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center gap-2">
+                <p className="text-xs text-aura-muted flex-1">Also regenerate the PDF summary?</p>
+                <button
+                  onClick={handleGeneratePdf}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                             bg-aura-accent/10 border border-aura-accent/30 text-aura-accent
+                             hover:bg-aura-accent/15 transition-colors"
+                >
+                  <FileText size={11} /> Generate PDF
+                </button>
+                <button onClick={resetResult} className="text-aura-muted/60 hover:text-aura-muted ml-1">
+                  <X size={13} />
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
