@@ -487,6 +487,7 @@ function EntityEditor() {
   const [selectedType, setSelectedType] = useState<EntityType>('directors')
   const [selectedId,   setSelectedId]   = useState<number | null>(null)
   const [innerTab,     setInnerTab]     = useState<'image' | 'fields'>('image')
+  const [imageFilter,  setImageFilter]  = useState<'missing' | null>(null)
   const { entities, loading, refresh, total, withImages } = useEntities(selectedType)
 
   const selectedEntity = selectedId != null
@@ -500,11 +501,25 @@ function EntityEditor() {
   function handleTypeChange(t: EntityType) {
     setSelectedType(t)
     setSelectedId(null)
+    setImageFilter(null)
   }
 
-  const showImageTab = supportsImage(selectedType)
-  const missingImages = showImageTab ? total - withImages : 0
-  const coveragePct   = showImageTab && total > 0 ? Math.round((withImages / total) * 100) : null
+  function toggleFilter(f: 'missing') {
+    const next = imageFilter === f ? null : f
+    setImageFilter(next)
+    // clear selection if selected entity not in new filtered list
+    if (next === 'missing' && selectedId != null) {
+      const selected = entities.find(e => e.id === selectedId)
+      if (selected?.hasImage) setSelectedId(null)
+    }
+  }
+
+  const showImageTab    = supportsImage(selectedType)
+  const missingImages   = showImageTab ? total - withImages : 0
+  const coveragePct     = showImageTab && total > 0 ? Math.round((withImages / total) * 100) : null
+  const displayEntities = imageFilter === 'missing'
+    ? entities.filter(e => !e.hasImage)
+    : entities
 
   return (
     <div className="space-y-3">
@@ -537,14 +552,33 @@ function EntityEditor() {
       {/* Image coverage stats (only for types that support images) */}
       {showImageTab && !loading && total > 0 && (
         <div className="grid grid-cols-3 gap-2">
-          <div className="glass rounded-xl p-2.5 border border-white/[0.06] text-center">
+          <button
+            onClick={() => { setImageFilter(null); setSelectedId(null) }}
+            className={clsx(
+              'glass rounded-xl p-2.5 border text-center transition-all',
+              imageFilter === null
+                ? 'border-aura-accent/30 bg-aura-accent/[0.05]'
+                : 'border-white/[0.06] hover:border-white/[0.12]',
+            )}
+          >
             <p className="text-sm font-bold text-aura-text">{total}</p>
             <p className="text-[10px] text-aura-muted">Total</p>
-          </div>
-          <div className={clsx('glass rounded-xl p-2.5 border text-center', missingImages > 0 ? 'border-aura-error/20' : 'border-white/[0.06]')}>
+          </button>
+          <button
+            onClick={() => toggleFilter('missing')}
+            disabled={missingImages === 0}
+            className={clsx(
+              'glass rounded-xl p-2.5 border text-center transition-all disabled:opacity-40 disabled:cursor-not-allowed',
+              imageFilter === 'missing'
+                ? 'border-aura-error/40 bg-aura-error/[0.08]'
+                : missingImages > 0
+                  ? 'border-aura-error/20 hover:border-aura-error/35'
+                  : 'border-white/[0.06]',
+            )}
+          >
             <p className="text-sm font-bold text-aura-text">{missingImages}</p>
             <p className="text-[10px] text-aura-muted">Missing</p>
-          </div>
+          </button>
           <div className={clsx('glass rounded-xl p-2.5 border text-center', coveragePct === 100 ? 'border-aura-success/20' : 'border-white/[0.06]')}>
             <p className={clsx('text-sm font-bold', coveragePct === 100 ? 'text-aura-success' : 'text-aura-text')}>{coveragePct}%</p>
             <p className="text-[10px] text-aura-muted">Coverage</p>
@@ -557,6 +591,11 @@ function EntityEditor() {
         <p className="text-[10px] font-bold text-aura-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
           <span>{ENTITY_TYPES[selectedType].icon}</span>
           {ENTITY_TYPES[selectedType].label}
+          {imageFilter === 'missing' && (
+            <span className="ml-1 text-[9px] font-semibold text-aura-error bg-aura-error/10 px-1.5 py-0.5 rounded-full border border-aura-error/20">
+              missing only
+            </span>
+          )}
           {!showImageTab && (
             <span className="ml-auto text-[9px] text-aura-muted/50 bg-white/[0.04] px-1.5 py-0.5 rounded-full border border-white/[0.06]">
               no image
@@ -579,9 +618,10 @@ function EntityEditor() {
                            focus:outline-none focus:border-aura-accent/40 transition-colors"
               >
                 <option value="">
-                  — select {ENTITY_TYPES[selectedType].label.toLowerCase().replace(/s$/, '')} —
+                  — select {ENTITY_TYPES[selectedType].label.toLowerCase().replace(/s$/, '')}
+                  {imageFilter === 'missing' ? ` (${displayEntities.length} missing)` : ''} —
                 </option>
-                {entities.map(e => (
+                {displayEntities.map(e => (
                   <option key={e.id as number} value={e.id as number}>
                     {entityDisplayName(e, selectedType)}
                     {(e.hebrewName ?? e.hebrew_name) ? ` (${e.hebrewName ?? e.hebrew_name})` : ''}
