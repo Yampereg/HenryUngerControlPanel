@@ -26,6 +26,10 @@ export async function PATCH(
     updates.subject_id = body.subjectId ?? null
   }
 
+  if (body.description !== undefined) updates.description   = body.description ?? null
+  if (body.course_r2_url !== undefined) updates.course_r2_url = body.course_r2_url ?? null
+  if (body.r2_dir !== undefined) updates.r2_dir          = body.r2_dir ?? null
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
   }

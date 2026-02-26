@@ -20,7 +20,9 @@ export async function GET(
 
   try {
     // 1. Fetch all entities from Supabase
-    const extraFields = entityType === 'courses' ? '' : ', hebrew_name, description'
+    const extraFields = entityType === 'courses'
+      ? ', description, course_r2_url, r2_dir, subject_id'
+      : ', hebrew_name, description'
     let query = supabase
       .from(entityType)
       .select(`id, ${nameField}${extraFields}`)

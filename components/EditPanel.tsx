@@ -19,7 +19,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Edit3, ImageIcon, Save, X, Check,
   Loader2, Trash2, FileImage, RefreshCw,
-  ChevronDown, ToggleLeft, ToggleRight,
+  ChevronDown, ToggleLeft, ToggleRight, Search,
 } from 'lucide-react'
 import { EntityType, ENTITY_TYPES } from '@/lib/constants'
 import { useToast } from './ToastProvider'
@@ -488,6 +488,7 @@ function EntityEditor() {
   const [selectedId,   setSelectedId]   = useState<number | null>(null)
   const [innerTab,     setInnerTab]     = useState<'image' | 'fields'>('image')
   const [imageFilter,  setImageFilter]  = useState<'missing' | null>(null)
+  const [searchQuery,  setSearchQuery]  = useState('')
   const { entities, loading, refresh, total, withImages } = useEntities(selectedType)
 
   const selectedEntity = selectedId != null
@@ -502,24 +503,33 @@ function EntityEditor() {
     setSelectedType(t)
     setSelectedId(null)
     setImageFilter(null)
+    setSearchQuery('')
   }
 
   function toggleFilter(f: 'missing') {
     const next = imageFilter === f ? null : f
     setImageFilter(next)
-    // clear selection if selected entity not in new filtered list
     if (next === 'missing' && selectedId != null) {
       const selected = entities.find(e => e.id === selectedId)
       if (selected?.hasImage) setSelectedId(null)
     }
   }
 
-  const showImageTab    = supportsImage(selectedType)
-  const missingImages   = showImageTab ? total - withImages : 0
-  const coveragePct     = showImageTab && total > 0 ? Math.round((withImages / total) * 100) : null
-  const displayEntities = imageFilter === 'missing'
+  const showImageTab  = supportsImage(selectedType)
+  const missingImages = showImageTab ? total - withImages : 0
+  const coveragePct   = showImageTab && total > 0 ? Math.round((withImages / total) * 100) : null
+
+  const filteredByImage = imageFilter === 'missing'
     ? entities.filter(e => !e.hasImage)
     : entities
+  const displayEntities = searchQuery.trim()
+    ? filteredByImage.filter(e => {
+        const q    = searchQuery.toLowerCase()
+        const name = entityDisplayName(e, selectedType).toLowerCase()
+        const heb  = String(e.hebrewName ?? e.hebrew_name ?? '').toLowerCase()
+        return name.includes(q) || heb.includes(q)
+      })
+    : filteredByImage
 
   return (
     <div className="space-y-3">
@@ -586,6 +596,27 @@ function EntityEditor() {
         </div>
       )}
 
+      {/* Search bar */}
+      <div className="relative">
+        <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => { setSearchQuery(e.target.value); setSelectedId(null) }}
+          placeholder={`Search ${ENTITY_TYPES[selectedType].label.toLowerCase()}…`}
+          className="w-full pl-8 pr-8 py-2 rounded-xl bg-black/20 border border-white/[0.08] text-sm text-aura-text
+                     placeholder-aura-muted/40 focus:outline-none focus:border-aura-accent/40 transition-colors"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => { setSearchQuery(''); setSelectedId(null) }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-aura-muted hover:text-aura-text"
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
+
       {/* Entity dropdown */}
       <div>
         <p className="text-[10px] font-bold text-aura-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -594,6 +625,11 @@ function EntityEditor() {
           {imageFilter === 'missing' && (
             <span className="ml-1 text-[9px] font-semibold text-aura-error bg-aura-error/10 px-1.5 py-0.5 rounded-full border border-aura-error/20">
               missing only
+            </span>
+          )}
+          {searchQuery && (
+            <span className="ml-1 text-[9px] font-semibold text-aura-accent bg-aura-accent/10 px-1.5 py-0.5 rounded-full border border-aura-accent/20">
+              {displayEntities.length} result{displayEntities.length !== 1 ? 's' : ''}
             </span>
           )}
           {!showImageTab && (
@@ -760,21 +796,43 @@ function EntityEditor() {
 // CourseEditor (exported — used by Dashboard.tsx)
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface SubjectOption { id: number; name_en: string; name_he: string }
+
 export function CourseEditor() {
   const { entities, loading, refresh } = useEntities('courses')
   const { error: toastError, success } = useToast()
-  const [courseId, setCourseId] = useState<number | null>(null)
-  const [values,   setValues]   = useState<Record<string, unknown>>({})
-  const [dirty,    setDirty]    = useState(false)
-  const [saving,   setSaving]   = useState(false)
+  const [courseId,  setCourseId]  = useState<number | null>(null)
+  const [values,    setValues]    = useState<Record<string, unknown>>({})
+  const [dirty,     setDirty]     = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [subjects,  setSubjects]  = useState<SubjectOption[]>([])
+  const [yearText,  setYearText]  = useState('')
+  const [placeText, setPlaceText] = useState('')
+  const [metaDirty, setMetaDirty] = useState(false)
 
   const course = courseId != null ? entities.find(c => c.id === courseId) ?? null : null
 
+  // Load subjects once
   useEffect(() => {
-    if (course) {
-      setValues(Object.fromEntries(FIELD_MAP.courses.map(f => [f.key, course[f.key] ?? null])))
-      setDirty(false)
-    }
+    fetch('/api/subjects')
+      .then(r => r.json())
+      .then(d => setSubjects(d.subjects ?? []))
+      .catch(console.error)
+  }, [])
+
+  // Load course fields + meta when course changes
+  useEffect(() => {
+    if (!course) return
+    setValues(Object.fromEntries(FIELD_MAP.courses.map(f => [f.key, course[f.key] ?? null])))
+    setDirty(false)
+    setMetaDirty(false)
+    fetch(`/api/courses/meta?courseId=${course.id as number}`)
+      .then(r => r.json())
+      .then(d => {
+        setYearText((d.years  ?? []).map((y: { value: number }) => String(y.value)).join(', '))
+        setPlaceText((d.places ?? []).map((p: { value: string }) => p.value).join(', '))
+      })
+      .catch(console.error)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course?.id])
 
@@ -782,13 +840,33 @@ export function CourseEditor() {
     if (!courseId) return
     setSaving(true)
     try {
-      const res = await fetch(`/api/entities/courses/${courseId}`, {
+      const courseBody: Record<string, unknown> = {
+        title:         values.title,
+        description:   values.description,
+        course_r2_url: values.course_r2_url,
+        r2_dir:        values.r2_dir,
+        subjectId:     values.subject_id != null ? Number(values.subject_id) : null,
+      }
+      const r1 = await fetch(`/api/courses/${courseId}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(values),
+        body:    JSON.stringify(courseBody),
       })
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed')
+      if (!r1.ok) throw new Error((await r1.json()).error ?? 'Save failed')
+
+      if (metaDirty) {
+        const years  = yearText.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
+        const places = placeText.split(',').map(s => s.trim()).filter(Boolean)
+        const r2 = await fetch('/api/courses/meta', {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ courseId, years, places }),
+        })
+        if (!r2.ok) throw new Error((await r2.json()).error ?? 'Meta save failed')
+      }
+
       setDirty(false)
+      setMetaDirty(false)
       success('Saved', 'Course updated.')
       refresh()
     } catch (e) {
@@ -797,6 +875,8 @@ export function CourseEditor() {
       setSaving(false)
     }
   }
+
+  const isAnythingDirty = dirty || metaDirty
 
   return (
     <div className="glass rounded-2xl p-4 border border-white/[0.07] space-y-3">
@@ -843,13 +923,62 @@ export function CourseEditor() {
               />
             </div>
           ))}
+
+          {/* Subject */}
+          <div>
+            <label className="text-xs font-medium text-aura-text mb-1.5 block">Subject</label>
+            <div className="relative">
+              <select
+                value={String(values.subject_id ?? '')}
+                onChange={e => {
+                  setValues(p => ({ ...p, subject_id: e.target.value ? Number(e.target.value) : null }))
+                  setDirty(true)
+                }}
+                disabled={saving}
+                className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40 disabled:opacity-40"
+              >
+                <option value="">— no subject —</option>
+                {subjects.map(s => (
+                  <option key={s.id} value={s.id}>{s.name_en}{s.name_he ? ` / ${s.name_he}` : ''}</option>
+                ))}
+              </select>
+              <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Year */}
+          <div>
+            <label className="text-xs font-medium text-aura-text mb-1.5 block">Year(s)</label>
+            <input
+              type="text"
+              value={yearText}
+              onChange={e => { setYearText(e.target.value); setMetaDirty(true) }}
+              disabled={saving}
+              placeholder="e.g. 2019 or 2018, 2019"
+              className="w-full bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text placeholder-aura-muted/40 focus:outline-none focus:border-aura-accent/40 disabled:opacity-40"
+            />
+          </div>
+
+          {/* Place */}
+          <div>
+            <label className="text-xs font-medium text-aura-text mb-1.5 block">Place(s)</label>
+            <input
+              type="text"
+              value={placeText}
+              onChange={e => { setPlaceText(e.target.value); setMetaDirty(true) }}
+              disabled={saving}
+              placeholder="e.g. Tel Aviv or Tel Aviv, Jerusalem"
+              className="w-full bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text placeholder-aura-muted/40 focus:outline-none focus:border-aura-accent/40 disabled:opacity-40"
+            />
+          </div>
+
           <button
             type="button"
             onClick={handleSave}
-            disabled={!dirty || saving}
+            disabled={!isAnythingDirty || saving}
             className={clsx(
               'w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all mt-1',
-              dirty && !saving
+              isAnythingDirty && !saving
                 ? 'bg-gradient-to-r from-aura-indigo to-aura-accent text-white hover:opacity-90'
                 : 'bg-white/[0.04] text-aura-muted/40 cursor-not-allowed border border-white/[0.05]',
             )}
