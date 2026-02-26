@@ -494,8 +494,11 @@ export function CourseUploader() {
                           {pct !== null && (
                             <div className="h-0.5 rounded-full bg-white/[0.05] overflow-hidden">
                               <div
-                                className="h-full bg-aura-accent rounded-full transition-all duration-500"
-                                style={{ width: `${pct}%` }}
+                                className={clsx(
+                                  "h-full rounded-full transition-all duration-500",
+                                  pct >= 100 ? "bg-green-500" : "bg-aura-accent"
+                                )}
+                                style={{ width: `${Math.min(100, pct)}%` }}
                               />
                             </div>
                           )}
