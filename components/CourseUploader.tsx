@@ -136,6 +136,7 @@ export function CourseUploader() {
   const [currentCourse,   setCurrentCourse]   = useState<ManagedCourse | null>(null)
   const [lectures,        setLectures]        = useState<LectureItem[]>([])
   const [queuingLecture,  setQueuingLecture]  = useState<number | null>(null)
+  const [queuingAll,      setQueuingAll]      = useState(false)
   const [loadingLectures, setLoadingLectures] = useState(false)
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -334,6 +335,41 @@ export function CourseUploader() {
       toastError('Failed', e instanceof Error ? e.message : String(e))
     } finally {
       setQueuingLecture(null)
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Queue all unqueued / failed lectures
+  // -------------------------------------------------------------------------
+  async function handleQueueAll() {
+    if (!currentCourse || queuingAll) return
+    const toQueue = lectures.filter(l => l.status === 'none' || l.status === 'failed')
+    if (toQueue.length === 0) return
+    setQueuingAll(true)
+    let queued = 0
+    for (const l of toQueue) {
+      try {
+        const res  = await fetch('/api/upload-jobs', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ courseId: currentCourse.id, lectureNumber: l.lectureNumber }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error)
+        queued++
+        setLectures(prev =>
+          prev.map(x =>
+            x.lectureNumber === l.lectureNumber
+              ? { ...x, status: 'pending', jobId: data.jobId as number }
+              : x,
+          ),
+        )
+      } catch { /* individual failures are silent; the row stays at its current status */ }
+    }
+    setQueuingAll(false)
+    if (queued > 0) {
+      success('Queued!', `${queued} lecture${queued !== 1 ? 's' : ''} added to transcription queue.`)
+      setTimeout(() => loadLectures(currentCourse.id), 4_000)
     }
   }
 
@@ -635,13 +671,34 @@ export function CourseUploader() {
                     {currentCourse.r2LectureCount ?? currentCourse.lectureCount} uploaded
                   </p>
                 </div>
-                <button
-                  onClick={() => loadLectures(currentCourse.id)}
-                  className="text-aura-muted hover:text-aura-text transition-colors shrink-0"
-                  title="Refresh"
-                >
-                  <RefreshCw size={13} className={loadingLectures ? 'animate-spin' : ''} />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {lectures.some(l => l.status === 'none' || l.status === 'failed') && (
+                    <button
+                      onClick={handleQueueAll}
+                      disabled={queuingAll}
+                      className={clsx(
+                        'flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold',
+                        'bg-aura-accent/10 text-aura-accent border border-aura-accent/20',
+                        'hover:bg-aura-accent/20 transition-colors',
+                        'disabled:opacity-40 disabled:cursor-not-allowed',
+                      )}
+                      title="Queue all unqueued lectures"
+                    >
+                      {queuingAll
+                        ? <Loader2 size={10} className="animate-spin" />
+                        : <Zap size={10} />
+                      }
+                      Queue All
+                    </button>
+                  )}
+                  <button
+                    onClick={() => loadLectures(currentCourse.id)}
+                    className="text-aura-muted hover:text-aura-text transition-colors"
+                    title="Refresh"
+                  >
+                    <RefreshCw size={13} className={loadingLectures ? 'animate-spin' : ''} />
+                  </button>
+                </div>
               </div>
 
               {loadingLectures ? (
@@ -664,7 +721,7 @@ export function CourseUploader() {
                       {(l.status === 'none' || l.status === 'failed') && (
                         <button
                           onClick={() => handleQueueLecture(l.lectureNumber)}
-                          disabled={queuingLecture === l.lectureNumber}
+                          disabled={queuingLecture === l.lectureNumber || queuingAll}
                           className={clsx(
                             'flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium',
                             'bg-aura-accent/10 text-aura-accent border border-aura-accent/20',
