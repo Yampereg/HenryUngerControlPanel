@@ -105,6 +105,8 @@ const FIELD_MAP: Record<EditableType, FieldDef[]> = {
 type EntityRow = Record<string, unknown>
 
 function entityDisplayName(entity: EntityRow, type: EntityType): string {
+  // API always returns displayName; fall back to nameField or id
+  if (entity.displayName) return entity.displayName as string
   const cfg = ENTITY_TYPES[type]
   return (entity[cfg.nameField] as string) ?? `#${entity.id}`
 }
@@ -118,8 +120,10 @@ function supportsImage(type: EditableType): boolean {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function useEntities(type: EntityType) {
-  const [entities, setEntities] = useState<EntityRow[]>([])
-  const [loading,  setLoading]  = useState(false)
+  const [entities,   setEntities]   = useState<EntityRow[]>([])
+  const [loading,    setLoading]    = useState(false)
+  const [total,      setTotal]      = useState(0)
+  const [withImages, setWithImages] = useState(0)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -127,6 +131,8 @@ function useEntities(type: EntityType) {
       const res  = await fetch(`/api/entities/${type}?all=true`)
       const data = await res.json()
       setEntities(Array.isArray(data) ? data : (data.entities ?? []))
+      setTotal(data.total ?? 0)
+      setWithImages(data.withImages ?? 0)
     } finally {
       setLoading(false)
     }
@@ -134,7 +140,7 @@ function useEntities(type: EntityType) {
 
   useEffect(() => { refresh() }, [refresh])
 
-  return { entities, loading, refresh }
+  return { entities, loading, refresh, total, withImages }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -247,10 +253,10 @@ function ImageUploader({
       form.append('file',       file)
       form.append('entityType', type)
       form.append('entityId',   String(entityId))
-      const res = await fetch('/api/entities/upload-image', { method: 'POST', body: form })
+      const res = await fetch('/api/upload', { method: 'POST', body: form })
       if (!res.ok) throw new Error((await res.json()).error ?? 'Upload failed')
-      const { url } = await res.json()
-      setPreview(url)
+      const { publicUrl } = await res.json()
+      setPreview(publicUrl)
       success('Uploaded', `Image set for "${entityName}".`)
       onDone()
     } catch (e) {
@@ -263,7 +269,7 @@ function ImageUploader({
   async function handleDelete() {
     setDeleting(true)
     try {
-      const res = await fetch('/api/entities/upload-image', {
+      const res = await fetch('/api/upload', {
         method:  'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ entityType: type, entityId }),
@@ -481,7 +487,7 @@ function EntityEditor() {
   const [selectedType, setSelectedType] = useState<EntityType>('directors')
   const [selectedId,   setSelectedId]   = useState<number | null>(null)
   const [innerTab,     setInnerTab]     = useState<'image' | 'fields'>('image')
-  const { entities, loading, refresh }  = useEntities(selectedType)
+  const { entities, loading, refresh, total, withImages } = useEntities(selectedType)
 
   const selectedEntity = selectedId != null
     ? entities.find(e => e.id === selectedId) ?? null
@@ -497,6 +503,8 @@ function EntityEditor() {
   }
 
   const showImageTab = supportsImage(selectedType)
+  const missingImages = showImageTab ? total - withImages : 0
+  const coveragePct   = showImageTab && total > 0 ? Math.round((withImages / total) * 100) : null
 
   return (
     <div className="space-y-3">
@@ -525,6 +533,24 @@ function EntityEditor() {
           })}
         </div>
       </div>
+
+      {/* Image coverage stats (only for types that support images) */}
+      {showImageTab && !loading && total > 0 && (
+        <div className="grid grid-cols-3 gap-2">
+          <div className="glass rounded-xl p-2.5 border border-white/[0.06] text-center">
+            <p className="text-sm font-bold text-aura-text">{total}</p>
+            <p className="text-[10px] text-aura-muted">Total</p>
+          </div>
+          <div className={clsx('glass rounded-xl p-2.5 border text-center', missingImages > 0 ? 'border-aura-error/20' : 'border-white/[0.06]')}>
+            <p className="text-sm font-bold text-aura-text">{missingImages}</p>
+            <p className="text-[10px] text-aura-muted">Missing</p>
+          </div>
+          <div className={clsx('glass rounded-xl p-2.5 border text-center', coveragePct === 100 ? 'border-aura-success/20' : 'border-white/[0.06]')}>
+            <p className={clsx('text-sm font-bold', coveragePct === 100 ? 'text-aura-success' : 'text-aura-text')}>{coveragePct}%</p>
+            <p className="text-[10px] text-aura-muted">Coverage</p>
+          </div>
+        </div>
+      )}
 
       {/* Entity dropdown */}
       <div>
@@ -558,7 +584,7 @@ function EntityEditor() {
                 {entities.map(e => (
                   <option key={e.id as number} value={e.id as number}>
                     {entityDisplayName(e, selectedType)}
-                    {e.hebrew_name ? ` (${e.hebrew_name})` : ''}
+                    {(e.hebrewName ?? e.hebrew_name) ? ` (${e.hebrewName ?? e.hebrew_name})` : ''}
                   </option>
                 ))}
               </select>

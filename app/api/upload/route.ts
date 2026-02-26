@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
-import { uploadToR2 } from '@/lib/r2'
+import { uploadToR2, deleteFromR2, r2KeyExists } from '@/lib/r2'
 import { ENTITY_TYPES, R2_IMAGES_PREFIX } from '@/lib/constants'
 
 // ---------------------------------------------------------------------------
-// POST /api/upload
+// POST /api/upload  — upload entity image (multipart/form-data)
 // ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
   try {
@@ -45,5 +45,34 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error('[upload]', err)
     return NextResponse.json({ error: 'Upload failed' }, { status: 500 })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/upload  — remove entity image from R2
+// Body: { entityType: string, entityId: number }
+// ---------------------------------------------------------------------------
+export async function DELETE(request: NextRequest) {
+  try {
+    const { entityType, entityId } = await request.json() as { entityType?: string; entityId?: number }
+
+    if (!entityType || entityId == null) {
+      return NextResponse.json({ error: 'entityType and entityId are required' }, { status: 400 })
+    }
+    if (!(entityType in ENTITY_TYPES)) {
+      return NextResponse.json({ error: 'Invalid entity type' }, { status: 400 })
+    }
+
+    const r2Key = `${R2_IMAGES_PREFIX}/${entityType}/${entityId}.jpeg`
+    const exists = await r2KeyExists(r2Key).catch(() => false)
+
+    if (exists) {
+      await deleteFromR2(r2Key)
+    }
+
+    return NextResponse.json({ success: true, deleted: exists })
+  } catch (err) {
+    console.error('[upload DELETE]', err)
+    return NextResponse.json({ error: 'Delete failed' }, { status: 500 })
   }
 }

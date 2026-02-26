@@ -15,15 +15,22 @@ export async function GET(
   }
 
   const showAll = req.nextUrl.searchParams.get('all') === 'true'
+  const search  = req.nextUrl.searchParams.get('search')?.trim() || null
   const { nameField } = ENTITY_TYPES[entityType]
 
   try {
     // 1. Fetch all entities from Supabase
     const extraFields = entityType === 'courses' ? '' : ', hebrew_name, description'
-    const { data: rows, error } = await supabase
+    let query = supabase
       .from(entityType)
       .select(`id, ${nameField}${extraFields}`)
       .order(nameField)
+
+    if (search) {
+      query = query.ilike(nameField, `%${search}%`)
+    }
+
+    const { data: rows, error } = await query
 
     if (error) throw error
 
@@ -38,9 +45,10 @@ export async function GET(
       if (!isNaN(id)) existingIds.add(id)
     }
 
-    // 3. Build entity list
+    // 3. Build entity list — preserve original row fields so form editors can read them
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const allEntities = ((rows ?? []) as any[]).map((row: Record<string, unknown>) => ({
+      ...row,                                              // keep name/title/synopsis/etc.
       id:          row.id as number,
       displayName: row[nameField] as string,
       hasImage:    existingIds.has(row.id as number),
@@ -52,7 +60,7 @@ export async function GET(
       ? allEntities
       : allEntities.filter((e) => !e.hasImage)
 
-    return NextResponse.json({ entities, total: rows?.length ?? 0 })
+    return NextResponse.json({ entities, total: rows?.length ?? 0, withImages: existingIds.size })
   } catch (err) {
     console.error('[entities]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
