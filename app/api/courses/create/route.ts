@@ -1,26 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { listR2Prefixes, uploadToR2 } from '@/lib/r2'
+import { listR2Prefixes } from '@/lib/r2'
 
 // POST /api/courses/create
-// FormData fields:
+// JSON body fields:
 //   r2Dir      — R2 top-level folder name (e.g. "my_course")
 //   title      — Course title
 //   subjectId  — (optional) numeric subject id
-//   image      — (optional) course cover image File
 export async function POST(req: NextRequest) {
   try {
-    const formData  = await req.formData()
-    const r2Dir     = (formData.get('r2Dir')     as string | null)?.trim()
-    const title     = (formData.get('title')     as string | null)?.trim()
-    const subIdRaw  = formData.get('subjectId')  as string | null
-    const imageFile = formData.get('image')      as File   | null
+    const body    = await req.json() as { r2Dir?: string; title?: string; subjectId?: number | null }
+    const r2Dir   = body.r2Dir?.trim()
+    const title   = body.title?.trim()
 
     if (!r2Dir || !title) {
       return NextResponse.json({ error: 'r2Dir and title are required' }, { status: 400 })
     }
 
-    const subjectId = subIdRaw && subIdRaw !== '' ? parseInt(subIdRaw, 10) : null
+    const subjectId = body.subjectId != null ? body.subjectId : null
 
     // Prevent duplicate courses for the same r2_dir
     const { data: existing } = await supabase
@@ -51,16 +48,6 @@ export async function POST(req: NextRequest) {
     }
 
     const courseId = course.id as number
-
-    // Upload cover image if provided
-    if (imageFile && imageFile.size > 0) {
-      const r2Key  = `images/courses/${courseId}.jpeg`
-      const buffer = Buffer.from(await imageFile.arrayBuffer())
-      await uploadToR2(r2Key, buffer, imageFile.type || 'image/jpeg')
-
-      // course_r2_url is reserved for the course folder URL set by the
-      // transcription pipeline; the image is served via /api/media/course/{id}/image
-    }
 
     // Discover lecture numbers from R2 sub-prefixes
     const subPrefixes  = await listR2Prefixes(`${r2Dir}/`)
