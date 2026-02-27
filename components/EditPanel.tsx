@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Edit3, ImageIcon, Save, X, Check,
+  Edit3, ImageIcon, Save, X, Check, Plus,
   Loader2, Trash2, FileImage, RefreshCw,
   ChevronDown, ToggleLeft, ToggleRight, Search, Link,
 } from 'lucide-react'
@@ -119,7 +119,7 @@ function supportsImage(type: EditableType): boolean {
 // useEntities — lightweight local hook, no global store needed
 // ─────────────────────────────────────────────────────────────────────────────
 
-function useEntities(type: EntityType) {
+function useEntities(type: EntityType, courseId?: number | null) {
   const [entities,   setEntities]   = useState<EntityRow[]>([])
   const [loading,    setLoading]    = useState(false)
   const [total,      setTotal]      = useState(0)
@@ -128,7 +128,9 @@ function useEntities(type: EntityType) {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const res  = await fetch(`/api/entities/${type}?all=true`)
+      const params = new URLSearchParams({ all: 'true' })
+      if (courseId != null) params.set('courseId', String(courseId))
+      const res  = await fetch(`/api/entities/${type}?${params}`)
       const data = await res.json()
       setEntities(Array.isArray(data) ? data : (data.entities ?? []))
       setTotal(data.total ?? 0)
@@ -136,7 +138,7 @@ function useEntities(type: EntityType) {
     } finally {
       setLoading(false)
     }
-  }, [type])
+  }, [type, courseId])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -417,6 +419,106 @@ function ImageUploader({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PlacesEditor — chips + add-new for course places
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PlacesEditor({ places, onChange, saving }: {
+  places:   string[]
+  onChange: (places: string[]) => void
+  saving:   boolean
+}) {
+  const [globalPlaces, setGlobalPlaces] = useState<string[]>([])
+  const [showInput,    setShowInput]    = useState(false)
+  const [inputVal,     setInputVal]     = useState('')
+
+  useEffect(() => {
+    fetch('/api/courses/meta?allPlaces=true')
+      .then(r => r.json())
+      .then(d => setGlobalPlaces(d.places ?? []))
+      .catch(() => {})
+  }, [])
+
+  const placesLower = places.map(x => x.toLowerCase())
+  const suggestions = globalPlaces.filter(p => !placesLower.includes(p.toLowerCase()))
+
+  function addPlace(p: string) {
+    const t = p.trim()
+    if (!t || placesLower.includes(t.toLowerCase())) return
+    onChange([...places, t])
+    setInputVal('')
+    setShowInput(false)
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5 min-h-[28px] items-center">
+        {places.map(p => (
+          <span key={p} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-aura-indigo/10 border border-aura-indigo/20 text-aura-indigo">
+            {p}
+            <button
+              type="button"
+              onClick={() => onChange(places.filter(x => x !== p))}
+              disabled={saving}
+              className="hover:text-aura-error transition-colors"
+            >
+              <X size={10} />
+            </button>
+          </span>
+        ))}
+        {places.length === 0 && !showInput && (
+          <span className="text-[11px] text-aura-muted/40">No places added</span>
+        )}
+      </div>
+
+      {showInput ? (
+        <div className="flex gap-2">
+          <input
+            autoFocus
+            type="text"
+            value={inputVal}
+            list="place-suggestions"
+            onChange={e => setInputVal(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter')  { e.preventDefault(); addPlace(inputVal) }
+              if (e.key === 'Escape') { setShowInput(false); setInputVal('') }
+            }}
+            placeholder="Place name…"
+            className="flex-1 bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-aura-text placeholder-aura-muted/40 focus:outline-none focus:border-aura-accent/40"
+          />
+          <datalist id="place-suggestions">
+            {suggestions.map(p => <option key={p} value={p} />)}
+          </datalist>
+          <button
+            type="button"
+            onClick={() => addPlace(inputVal)}
+            disabled={!inputVal.trim()}
+            className="px-3 py-2 rounded-xl text-xs font-semibold bg-aura-indigo/10 border border-aura-indigo/20 text-aura-indigo hover:bg-aura-indigo/20 disabled:opacity-40 transition-colors"
+          >
+            Add
+          </button>
+          <button
+            type="button"
+            onClick={() => { setShowInput(false); setInputVal('') }}
+            className="px-2 py-2 rounded-xl text-aura-muted hover:text-aura-text border border-white/[0.07] hover:bg-white/[0.04] transition-colors"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowInput(true)}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs text-aura-muted border border-white/[0.07] hover:border-white/[0.14] hover:text-aura-text hover:bg-white/[0.03] transition-colors disabled:opacity-40"
+        >
+          <Plus size={11} /> Add place
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // EntityEditForm
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -528,6 +630,168 @@ function EntityEditForm({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// InlineCourseEditor — full course editor inside EntityEditor's fields tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SubjectOption { id: number; name_en: string; name_he: string }
+
+function InlineCourseEditor({ entity, onSaved }: { entity: EntityRow; onSaved: () => void }) {
+  const courseId = entity.id as number
+  const { error: toastError, success } = useToast()
+  const [subjects,  setSubjects]  = useState<SubjectOption[]>([])
+  const [values,    setValues]    = useState<Record<string, unknown>>(
+    () => Object.fromEntries(FIELD_MAP.courses.map(f => [f.key, entity[f.key] ?? null]))
+  )
+  const [subjectId, setSubjectId] = useState<number | null>((entity.subject_id as number | null) ?? null)
+  const [yearText,  setYearText]  = useState('')
+  const [places,    setPlaces]    = useState<string[]>([])
+  const [saving,    setSaving]    = useState(false)
+  const [dirty,     setDirty]     = useState(false)
+  const [metaDirty, setMetaDirty] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/subjects').then(r => r.json()).then(d => setSubjects(d.subjects ?? [])).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    setValues(Object.fromEntries(FIELD_MAP.courses.map(f => [f.key, entity[f.key] ?? null])))
+    setSubjectId((entity.subject_id as number | null) ?? null)
+    setDirty(false)
+    setMetaDirty(false)
+    fetch(`/api/courses/meta?courseId=${courseId}`)
+      .then(r => r.json())
+      .then(d => {
+        setYearText((d.years  ?? []).map((y: { value: number }) => String(y.value)).join(', '))
+        setPlaces((d.places ?? []).map((p: { value: string }) => p.value))
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId])
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const r1 = await fetch(`/api/courses/${courseId}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          title:         values.title,
+          description:   values.description,
+          course_r2_url: values.course_r2_url,
+          r2_dir:        values.r2_dir,
+          subjectId:     subjectId,
+        }),
+      })
+      if (!r1.ok) throw new Error((await r1.json()).error ?? 'Save failed')
+
+      if (metaDirty) {
+        const years = yearText.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
+        const r2 = await fetch('/api/courses/meta', {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ courseId, years, places }),
+        })
+        if (!r2.ok) throw new Error((await r2.json()).error ?? 'Meta save failed')
+      }
+
+      setDirty(false)
+      setMetaDirty(false)
+      success('Saved', 'Course updated.')
+      onSaved()
+    } catch (e) {
+      toastError('Save failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isAnythingDirty = dirty || metaDirty
+
+  return (
+    <div className="space-y-3">
+      {FIELD_MAP.courses.map(field => (
+        <div key={field.key}>
+          <label className="flex items-center gap-1.5 mb-1.5">
+            <span className="text-xs font-medium text-aura-text">{field.label}</span>
+            {field.required && <span className="text-[9px] text-aura-error">*</span>}
+            {field.hint && <span className="text-[9px] text-aura-muted/60 italic">{field.hint}</span>}
+          </label>
+          <FieldEditor
+            field={field}
+            value={values[field.key]}
+            onChange={val => { setValues(p => ({ ...p, [field.key]: val })); setDirty(true) }}
+            saving={saving}
+          />
+        </div>
+      ))}
+
+      {/* Subject */}
+      <div>
+        <label className="text-xs font-medium text-aura-text mb-1.5 block">Subject</label>
+        <div className="relative">
+          <select
+            value={String(subjectId ?? '')}
+            onChange={e => { setSubjectId(e.target.value ? Number(e.target.value) : null); setDirty(true) }}
+            disabled={saving}
+            className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40 disabled:opacity-40"
+          >
+            <option value="">— no subject —</option>
+            {subjects.map(s => (
+              <option key={s.id} value={s.id}>{s.name_en}{s.name_he ? ` / ${s.name_he}` : ''}</option>
+            ))}
+          </select>
+          <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+        </div>
+      </div>
+
+      {/* Year(s) */}
+      <div>
+        <label className="text-xs font-medium text-aura-text mb-1.5 block">Year(s)</label>
+        <input
+          type="text"
+          value={yearText}
+          onChange={e => { setYearText(e.target.value); setMetaDirty(true) }}
+          disabled={saving}
+          placeholder="e.g. 2019 or 2018, 2019"
+          className="w-full bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text placeholder-aura-muted/40 focus:outline-none focus:border-aura-accent/40 disabled:opacity-40"
+        />
+      </div>
+
+      {/* Place(s) */}
+      <div>
+        <label className="text-xs font-medium text-aura-text mb-1.5 block">Place(s)</label>
+        <PlacesEditor
+          places={places}
+          onChange={newPlaces => { setPlaces(newPlaces); setMetaDirty(true) }}
+          saving={saving}
+        />
+      </div>
+
+      <div className="pt-1">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!isAnythingDirty || saving}
+          className={clsx(
+            'w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all',
+            isAnythingDirty && !saving
+              ? 'bg-gradient-to-r from-aura-indigo to-aura-accent text-white shadow-[0_0_16px_rgba(129,140,248,0.2)] hover:opacity-90'
+              : 'bg-white/[0.04] text-aura-muted/40 cursor-not-allowed border border-white/[0.05]',
+          )}
+        >
+          {saving
+            ? <><Loader2 size={12} className="animate-spin" /> Saving…</>
+            : isAnythingDirty
+            ? <><Save size={12} /> Save Course</>
+            : <><Check size={12} /> Saved</>
+          }
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // EntityEditor (generic, used inside EditPanel)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -538,15 +802,20 @@ function EntityEditor() {
   const [selectedId,   setSelectedId]   = useState<number | null>(null)
   const [innerTab,     setInnerTab]     = useState<'image' | 'fields'>('image')
   const [imageFilter,  setImageFilter]  = useState<'missing' | null>(null)
-  const [searchQuery,  setSearchQuery]  = useState('')
-  const { entities, loading, refresh, total, withImages } = useEntities(selectedType)
+  const [searchQuery,    setSearchQuery]    = useState('')
+  const [filterCourseId, setFilterCourseId] = useState<number | null>(null)
+  const { entities: allCourses } = useEntities('courses')
+  const { entities, loading, refresh, total, withImages } = useEntities(
+    selectedType,
+    selectedType === 'lectures' ? filterCourseId : undefined,
+  )
 
   const selectedEntity = selectedId != null
     ? entities.find(e => e.id === selectedId) ?? null
     : null
 
   useEffect(() => {
-    if (!supportsImage(selectedType)) setInnerTab('fields')
+    if (!supportsImage(selectedType) || selectedType === 'courses') setInnerTab('fields')
   }, [selectedType])
 
   function handleTypeChange(t: EntityType) {
@@ -554,6 +823,7 @@ function EntityEditor() {
     setSelectedId(null)
     setImageFilter(null)
     setSearchQuery('')
+    setFilterCourseId(null)
   }
 
   function toggleFilter(f: 'missing') {
@@ -666,6 +936,23 @@ function EntityEditor() {
           </button>
         )}
       </div>
+
+      {/* Course filter (lectures only) */}
+      {selectedType === 'lectures' && (
+        <div className="relative">
+          <select
+            value={filterCourseId ?? ''}
+            onChange={e => { setFilterCourseId(e.target.value ? Number(e.target.value) : null); setSelectedId(null) }}
+            className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40"
+          >
+            <option value="">— all courses —</option>
+            {allCourses.map(c => (
+              <option key={c.id as number} value={c.id as number}>{c.title as string}</option>
+            ))}
+          </select>
+          <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+        </div>
+      )}
 
       {/* Entity dropdown */}
       <div>
@@ -807,11 +1094,15 @@ function EntityEditor() {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
                   >
-                    <EntityEditForm
-                      type={selectedType}
-                      entity={selectedEntity}
-                      onSaved={refresh}
-                    />
+                    {selectedType === 'courses' ? (
+                      <InlineCourseEditor entity={selectedEntity} onSaved={refresh} />
+                    ) : (
+                      <EntityEditForm
+                        type={selectedType}
+                        entity={selectedEntity}
+                        onSaved={refresh}
+                      />
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -845,8 +1136,6 @@ function EntityEditor() {
 // ─────────────────────────────────────────────────────────────────────────────
 // CourseEditor (exported — used by Dashboard.tsx)
 // ─────────────────────────────────────────────────────────────────────────────
-
-interface SubjectOption { id: number; name_en: string; name_he: string }
 
 export function CourseEditor() {
   const { entities, loading, refresh } = useEntities('courses')
@@ -1421,8 +1710,6 @@ export function EditPanel() {
         <EntityEditor />
       </div>
       <LectureEntityEditor />
-      <CourseEditor />
-      <LectureMetaEditor />
     </div>
   )
 }

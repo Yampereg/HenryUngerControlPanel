@@ -3,8 +3,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-// GET /api/courses/meta?courseId=X
+// GET /api/courses/meta?courseId=X  or  ?allPlaces=true
 export async function GET(req: NextRequest) {
+  // Return all distinct places across all courses (for PlacesEditor suggestions)
+  if (req.nextUrl.searchParams.get('allPlaces') === 'true') {
+    const { data } = await supabase.from('course_places').select('place').order('place')
+    const seen = new Set<string>()
+    const distinct: string[] = []
+    for (const row of (data ?? []) as { place: string }[]) {
+      if (!seen.has(row.place)) { seen.add(row.place); distinct.push(row.place) }
+    }
+    return NextResponse.json({ places: distinct })
+  }
+
   const courseId = parseInt(req.nextUrl.searchParams.get('courseId') ?? '', 10)
   if (!courseId) return NextResponse.json({ error: 'courseId required' }, { status: 400 })
 
