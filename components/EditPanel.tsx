@@ -1209,7 +1209,7 @@ type CategoryState = { rows: LectureEntityRow[]; loading: boolean }
 function emptyCategories(): Record<EntityType, CategoryState> {
   return Object.fromEntries(
     LECTURE_ENTITY_CATEGORIES.map(cat => [cat, { rows: [], loading: false }])
-  ) as Record<EntityType, CategoryState>
+  ) as unknown as Record<EntityType, CategoryState>
 }
 
 export function LectureEntityEditor() {
@@ -1237,7 +1237,7 @@ export function LectureEntityEditor() {
     if (lectureId == null) { setCatData(emptyCategories()); return }
     setCatData(Object.fromEntries(
       LECTURE_ENTITY_CATEGORIES.map(cat => [cat, { rows: [], loading: true }])
-    ) as Record<EntityType, CategoryState>)
+    ) as unknown as Record<EntityType, CategoryState>)
     for (const cat of LECTURE_ENTITY_CATEGORIES) {
       fetch(`/api/lecture-entities?lectureId=${lectureId}&category=${cat}`)
         .then(r => r.json())
