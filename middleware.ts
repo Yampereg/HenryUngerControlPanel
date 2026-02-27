@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PANEL_TOKEN  = process.env.PANEL_API_TOKEN ?? process.env.PANEL_TOKEN  // undefined → open (no auth)
+// UI token (cookie / URL param login) — used by the browser
+const PANEL_TOKEN  = process.env.PANEL_TOKEN   // undefined → open (no auth)
+// Server-to-server token sent by the Transcriber daemon in the x-panel-token header
+const SERVER_TOKEN = process.env.PANEL_API_TOKEN ?? process.env.PANEL_TOKEN
 const COOKIE_NAME  = 'panel-token'
 const COOKIE_TTL   = 60 * 60 * 24              // 24 hours
 
@@ -9,14 +12,15 @@ export function middleware(request: NextRequest) {
   if (!PANEL_TOKEN) return NextResponse.next()
 
   // 1. Server-to-server calls (Transcriber daemon) use x-panel-token header
+  //    Accepted if it matches either PANEL_API_TOKEN or PANEL_TOKEN
   const headerToken = request.headers.get('x-panel-token')
-  if (headerToken && headerToken === PANEL_TOKEN) return NextResponse.next()
+  if (headerToken && SERVER_TOKEN && headerToken === SERVER_TOKEN) return NextResponse.next()
 
   // 2. Valid cookie already present → pass through
   const cookieVal = request.cookies.get(COOKIE_NAME)?.value
   if (cookieVal === PANEL_TOKEN) return NextResponse.next()
 
-  // 2. Token supplied in URL query param (first visit from the website)
+  // 3. Token supplied in URL query param (first visit from the website)
   const urlToken = request.nextUrl.searchParams.get('token')
   if (urlToken === PANEL_TOKEN) {
     // Strip token from URL so it doesn't linger in the address bar
