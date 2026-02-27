@@ -66,49 +66,11 @@ async function callGemini(prompt: string, jsonMode = false): Promise<string> {
   return result.response.text().trim()
 }
 
-// Parse the plain-text DISCUSSED/MENTIONED format used by per-entity prompts.
-// Matches the Transcriber's MetadataExtractor._parse_discussed_mentioned().
-function parsePlainTextEntityResult(text: string): { discussed: string[]; mentioned: string[] } {
-  const discussed: string[] = []
-  const mentioned: string[] = []
-  let current: 'discussed' | 'mentioned' | null = null
-
-  for (const rawLine of text.split('\n')) {
-    const stripped = rawLine.trim()
-    if (!stripped) continue
-    const up = stripped.toUpperCase()
-
-    let raw: string
-    if (up.includes('DISCUSSED:')) {
-      current = 'discussed'
-      raw = stripped.slice(up.indexOf('DISCUSSED:') + 'DISCUSSED:'.length).trim()
-    } else if (up.includes('MENTIONED:')) {
-      current = 'mentioned'
-      raw = stripped.slice(up.indexOf('MENTIONED:') + 'MENTIONED:'.length).trim()
-    } else {
-      raw = stripped
-    }
-
-    if (!current || !raw) continue
-    raw = raw.replace(/^[-•*]+/, '').replace(/^\d+[.)]\s*/, '').trim()
-    if (!raw || raw.toLowerCase() === 'none' || raw === 'אין') continue
-
-    const items = raw.split(',')
-      .map(x => x.replace(/^[-•*]+/, '').replace(/^\d+[.)]\s*/, '').trim())
-      .filter(x => x && x.toLowerCase() !== 'none')
-
-    if (current === 'discussed') discussed.push(...items)
-    else mentioned.push(...items)
-  }
-
-  // Deduplicate preserving order
-  const dedup = (arr: string[]) => arr.filter((v, i, a) => a.findIndex(x => x.toLowerCase() === v.toLowerCase()) === i)
-  return { discussed: dedup(discussed), mentioned: dedup(mentioned) }
-}
-
-// Run entity extraction using per-entity prompts (same as Transcriber).
-// 3 rounds × 7 entity types in parallel, then merge.
-async function extractEntitiesWithPerEntityPrompts(
+// ---------------------------------------------------------------------------
+// JSON-based entity extraction using entities_all.txt (same as Transcriber).
+// 3 runs, results merged — no text parsing, no comma/semicolon ambiguity.
+// ---------------------------------------------------------------------------
+async function extractEntities(
   transcript: string,
   appendNote: (p: string) => string,
 ): Promise<Record<string, { discussed: string[]; mentioned: string[] }>> {
@@ -116,19 +78,29 @@ async function extractEntitiesWithPerEntityPrompts(
   const allRuns: Record<string, { discussed: string[]; mentioned: string[] }>[] = []
 
   for (let run = 0; run < NUM_RUNS; run++) {
-    const runResult: Record<string, { discussed: string[]; mentioned: string[] }> = {}
-    await Promise.all(
-      ENTITY_TYPES.map(async et => {
-        try {
-          const prompt = appendNote(loadPrompt(`${et}.txt`).replace('{transcript}', transcript))
-          const text   = await callGemini(prompt, false)
-          runResult[et] = parsePlainTextEntityResult(text)
-        } catch {
-          runResult[et] = { discussed: [], mentioned: [] }
+    try {
+      const prompt = appendNote(
+        loadPrompt('entities_all.txt').replace('{transcript}', transcript),
+      )
+      const text   = await callGemini(prompt, true) // JSON mode
+      // Strip markdown fences if present (older Gemini versions sometimes add them)
+      const clean  = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+      const data   = JSON.parse(clean) as Record<string, { discussed?: string[]; mentioned?: string[] }>
+
+      const runResult: Record<string, { discussed: string[]; mentioned: string[] }> = {}
+      for (const et of ENTITY_TYPES) {
+        const etData = data[et] ?? {}
+        runResult[et] = {
+          discussed: (etData.discussed ?? []).filter((s): s is string => typeof s === 'string' && s.trim() !== ''),
+          mentioned: (etData.mentioned ?? []).filter((s): s is string => typeof s === 'string' && s.trim() !== ''),
         }
-      }),
-    )
-    allRuns.push(runResult)
+      }
+      allRuns.push(runResult)
+    } catch {
+      allRuns.push(
+        Object.fromEntries(ENTITY_TYPES.map(et => [et, { discussed: [], mentioned: [] }])),
+      )
+    }
   }
 
   // Merge all runs: union by lowercase, preserving first-seen order
@@ -257,7 +229,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ type: 'course_synopsis', courseId: body.courseId, before: course.description ?? '', after })
     }
 
-    // ── entities ──────────────────────────────────────────────────────────
+    // ── entities — JSON-based, uses entities_all.txt ───────────────────────
     if (body.type === 'entities') {
       if (!body.lectureId) return NextResponse.json({ error: 'lectureId required' }, { status: 400 })
       const { data: lec } = await supabase
@@ -269,7 +241,7 @@ export async function POST(req: NextRequest) {
       if (!course?.r2_dir) return NextResponse.json({ error: 'r2_dir not set on course' }, { status: 400 })
 
       const transcript = await getR2Text(`${course.r2_dir}/${lec.order_in_course}/transcript.txt`)
-      const extracted  = await extractEntitiesWithPerEntityPrompts(transcript, appendNote)
+      const extracted  = await extractEntities(transcript, appendNote)
       const current    = await fetchCurrentEntities(body.lectureId)
 
       return NextResponse.json({ type: 'entities', lectureId: body.lectureId, current, extracted })

@@ -29,8 +29,8 @@ import clsx from 'clsx'
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Extended type that includes entity types + lectures + themes (which are editable but not in ENTITY_TYPES) */
-type EditableType = EntityType | 'lectures' | 'themes'
+/** Extended type that includes entity types + themes (lectures is now in ENTITY_TYPES) */
+type EditableType = EntityType | 'themes'
 
 /** Entity types that NEVER have an image */
 const NO_IMAGE_TYPES: EditableType[] = ['lectures', 'themes']
@@ -1421,6 +1421,8 @@ export function EditPanel() {
         <EntityEditor />
       </div>
       <LectureEntityEditor />
+      <CourseEditor />
+      <LectureMetaEditor />
     </div>
   )
 }

@@ -1,5 +1,6 @@
 export const ENTITY_TYPES = {
   courses:      { label: 'Courses',      nameField: 'title' as const, icon: '🎓' },
+  lectures:     { label: 'Lectures',     nameField: 'title' as const, icon: '🎤' },
   directors:    { label: 'Directors',    nameField: 'name'  as const, icon: '🎬' },
   films:        { label: 'Films',        nameField: 'title' as const, icon: '🎞' },
   writers:      { label: 'Writers',      nameField: 'name'  as const, icon: '✍️' },

@@ -14,11 +14,37 @@ export async function GET(
     return NextResponse.json({ error: 'Unknown entity type' }, { status: 400 })
   }
 
-  const showAll = req.nextUrl.searchParams.get('all') === 'true'
-  const search  = req.nextUrl.searchParams.get('search')?.trim() || null
+  const showAll  = req.nextUrl.searchParams.get('all') === 'true'
+  const search   = req.nextUrl.searchParams.get('search')?.trim() || null
+  const courseId = req.nextUrl.searchParams.get('courseId')
   const { nameField } = ENTITY_TYPES[entityType]
 
   try {
+    // ── Lectures: special fields, courseId filter, no images ──────────────
+    if (entityType === 'lectures') {
+      let query = supabase
+        .from('lectures')
+        .select('id, title, synopsis, date, duration, order_in_course, transcribed, course_id')
+        .order('order_in_course')
+
+      if (courseId) query = query.eq('course_id', parseInt(courseId, 10))
+      if (search)   query = query.ilike('title', `%${search}%`)
+
+      const { data: rows, error } = await query
+      if (error) throw error
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const allEntities = ((rows ?? []) as any[]).map((row: Record<string, unknown>) => ({
+        ...row,
+        id:          row.id as number,
+        displayName: row.title as string,
+        hasImage:    false,
+      }))
+
+      return NextResponse.json({ entities: allEntities, total: rows?.length ?? 0, withImages: 0 })
+    }
+
+    // ── All other entity types ─────────────────────────────────────────────
     // 1. Fetch all entities from Supabase
     const extraFields = entityType === 'courses'
       ? ', description, course_r2_url, r2_dir, subject_id'
