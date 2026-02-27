@@ -8,7 +8,7 @@ Rules per category:
 - books:        Book/literary work titles explicitly mentioned (English or Hebrew)
 - painters:     Visual artists (painters, sculptors) explicitly named (English or Hebrew)
 - paintings:    Specific artwork titles explicitly mentioned (Hebrew preferred)
-- philosophers: Philosophers and major intellectual figures explicitly named (English)
+- philosophers: Philosophers and intellectuals explicitly named (English) — NOT poets, novelists, or film directors; only people primarily known as thinkers
 - themes:       Exactly 10 broad academic/philosophical themes from the lecture (Hebrew)
 
 For each category use two lists:
