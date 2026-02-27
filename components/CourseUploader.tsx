@@ -135,9 +135,10 @@ export function CourseUploader() {
   const [submitting,      setSubmitting]      = useState(false)
   const [currentCourse,   setCurrentCourse]   = useState<ManagedCourse | null>(null)
   const [lectures,        setLectures]        = useState<LectureItem[]>([])
-  const [queuingLecture,  setQueuingLecture]  = useState<number | null>(null)
-  const [queuingAll,      setQueuingAll]      = useState(false)
-  const [loadingLectures, setLoadingLectures] = useState(false)
+  const [queuingLecture,    setQueuingLecture]    = useState<number | null>(null)
+  const [queuingAll,        setQueuingAll]        = useState(false)
+  const [cancellingLecture, setCancellingLecture] = useState<number | null>(null)
+  const [loadingLectures,   setLoadingLectures]   = useState(false)
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -335,6 +336,42 @@ export function CourseUploader() {
       toastError('Failed', e instanceof Error ? e.message : String(e))
     } finally {
       setQueuingLecture(null)
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Cancel / dequeue a lecture
+  // -------------------------------------------------------------------------
+  async function handleCancelLecture(lectureNumber: number, jobId: number | null) {
+    if (!jobId) return
+    setCancellingLecture(lectureNumber)
+    try {
+      const res  = await fetch('/api/upload-jobs', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ jobId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      const action = data.action as string
+      setLectures(prev =>
+        prev.map(l =>
+          l.lectureNumber === lectureNumber
+            ? { ...l, status: action === 'deleted' ? 'none' : 'failed', jobId: null }
+            : l,
+        ),
+      )
+      success(
+        action === 'deleted' ? 'Removed' : 'Cancelled',
+        action === 'deleted'
+          ? `Lecture ${lectureNumber} removed from queue.`
+          : `Lecture ${lectureNumber} marked failed — can be retried.`,
+      )
+    } catch (e) {
+      toastError('Failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setCancellingLecture(null)
     }
   }
 
@@ -734,6 +771,24 @@ export function CourseUploader() {
                             : <Zap size={10} />
                           }
                           {l.status === 'failed' ? 'Retry' : 'Queue'}
+                        </button>
+                      )}
+                      {(l.status === 'pending' || l.status === 'running') && (
+                        <button
+                          onClick={() => handleCancelLecture(l.lectureNumber, l.jobId)}
+                          disabled={cancellingLecture === l.lectureNumber}
+                          title={l.status === 'pending' ? 'Remove from queue' : 'Mark as failed'}
+                          className={clsx(
+                            'flex items-center justify-center w-6 h-6 rounded-lg text-[10px]',
+                            'text-aura-muted border border-white/[0.08]',
+                            'hover:text-aura-error hover:border-aura-error/30 transition-colors',
+                            'disabled:opacity-40 disabled:cursor-not-allowed',
+                          )}
+                        >
+                          {cancellingLecture === l.lectureNumber
+                            ? <Loader2 size={10} className="animate-spin" />
+                            : <X size={10} />
+                          }
                         </button>
                       )}
                     </div>

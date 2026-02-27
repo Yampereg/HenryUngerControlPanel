@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PANEL_TOKEN  = process.env.PANEL_TOKEN   // undefined → open (no auth)
+const PANEL_TOKEN  = process.env.PANEL_API_TOKEN ?? process.env.PANEL_TOKEN  // undefined → open (no auth)
 const COOKIE_NAME  = 'panel-token'
 const COOKIE_TTL   = 60 * 60 * 24              // 24 hours
 

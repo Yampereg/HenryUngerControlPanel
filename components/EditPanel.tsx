@@ -19,7 +19,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Edit3, ImageIcon, Save, X, Check,
   Loader2, Trash2, FileImage, RefreshCw,
-  ChevronDown, ToggleLeft, ToggleRight, Search,
+  ChevronDown, ToggleLeft, ToggleRight, Search, Link,
 } from 'lucide-react'
 import { EntityType, ENTITY_TYPES } from '@/lib/constants'
 import { useToast } from './ToastProvider'
@@ -239,6 +239,8 @@ function ImageUploader({
   const [uploading, setUploading] = useState(false)
   const [deleting,  setDeleting]  = useState(false)
   const [dragOver,  setDragOver]  = useState(false)
+  const [urlInput,  setUrlInput]  = useState('')
+  const [fetchingUrl, setFetchingUrl] = useState(false)
 
   useEffect(() => { setPreview(currentImage) }, [currentImage])
 
@@ -263,6 +265,26 @@ function ImageUploader({
       toastError('Upload failed', e instanceof Error ? e.message : String(e))
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function fetchFromUrl() {
+    const trimmed = urlInput.trim()
+    if (!trimmed) return
+    setFetchingUrl(true)
+    try {
+      const proxyRes = await fetch(`/api/fetch-image?url=${encodeURIComponent(trimmed)}`)
+      if (!proxyRes.ok) throw new Error((await proxyRes.json()).error ?? 'Fetch failed')
+      const contentType = proxyRes.headers.get('content-type') ?? 'image/jpeg'
+      const buffer      = await proxyRes.arrayBuffer()
+      const ext         = contentType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg'
+      const file        = new File([buffer], `image.${ext}`, { type: contentType })
+      setUrlInput('')
+      await upload(file)
+    } catch (e) {
+      toastError('URL fetch failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setFetchingUrl(false)
     }
   }
 
@@ -362,6 +384,34 @@ function ImageUploader({
         className="hidden"
         onChange={e => e.target.files?.[0] && upload(e.target.files[0])}
       />
+
+      {/* URL input */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Link size={11} className="absolute left-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+          <input
+            type="text"
+            value={urlInput}
+            onChange={e => setUrlInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && fetchFromUrl()}
+            placeholder="Paste image URL…"
+            disabled={uploading || fetchingUrl}
+            className="w-full pl-8 pr-3 py-2 rounded-xl bg-black/20 border border-white/[0.08] text-xs text-aura-text
+                       placeholder-aura-muted/40 focus:outline-none focus:border-aura-accent/40 transition-colors disabled:opacity-40"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={fetchFromUrl}
+          disabled={!urlInput.trim() || uploading || fetchingUrl}
+          className="px-3 py-2 rounded-xl text-xs font-semibold bg-white/[0.05] border border-white/[0.08]
+                     text-aura-muted hover:text-aura-text hover:bg-white/[0.08] transition-colors
+                     disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+        >
+          {fetchingUrl ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+          Fetch
+        </button>
+      </div>
     </div>
   )
 }

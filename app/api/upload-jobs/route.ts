@@ -115,6 +115,52 @@ export async function GET() {
   return NextResponse.json({ jobs: [...groups.values()], active, lastCompleted, succeededPerCourse })
 }
 
+// DELETE /api/upload-jobs
+// Body: { jobId: number }
+// Cancels a pending job (deletes the row) or marks a running job as failed.
+export async function DELETE(req: NextRequest) {
+  const body  = await req.json()
+  const jobId = body.jobId as number | undefined
+
+  if (!jobId) {
+    return NextResponse.json({ error: 'jobId required' }, { status: 400 })
+  }
+
+  const { data: job, error: fetchErr } = await supabase
+    .from('upload_jobs')
+    .select('id, status')
+    .eq('id', jobId)
+    .maybeSingle()
+
+  if (fetchErr || !job) {
+    return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+  }
+
+  interface JobRecord { id: number; status: string }
+  const j = job as JobRecord
+
+  if (j.status === 'pending') {
+    const { error } = await supabase.from('upload_jobs').delete().eq('id', jobId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true, action: 'deleted' })
+  }
+
+  if (j.status === 'running') {
+    // Can't kill the subprocess remotely; mark as failed so it won't be retried
+    const { error } = await supabase
+      .from('upload_jobs')
+      .update({ status: 'failed', output: '[Cancelled by user]', completed_at: new Date().toISOString() })
+      .eq('id', jobId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true, action: 'cancelled' })
+  }
+
+  return NextResponse.json(
+    { error: `Cannot cancel job with status: ${j.status}` },
+    { status: 409 },
+  )
+}
+
 // POST /api/upload-jobs
 // Body: { courseId: number, lectureNumber: number }
 // Queues a single lecture for transcription. Re-queues failed jobs.

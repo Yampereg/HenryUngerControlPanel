@@ -5,36 +5,55 @@ import { deleteFromR2, r2KeyExists, copyInR2 } from '@/lib/r2'
 
 type Params = { params: Promise<{ type: string; id: string }> }
 
-// PATCH /api/entities/[type]/[id]  — update name, hebrewName, description
+// PATCH /api/entities/[type]/[id]
+// Accepts raw DB field names from the client (e.g. 'name'/'title', 'hebrew_name', 'description').
+// Also handles 'lectures' type (not in ENTITY_TYPES).
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { type, id } = await params
-  const entityType   = type as EntityType
+  const numericId    = parseInt(id, 10)
+  const body         = await req.json() as Record<string, unknown>
+
+  // ── Lectures — handled separately (not in ENTITY_TYPES) ──────────────────
+  if (type === 'lectures') {
+    const allowed = ['title', 'synopsis', 'date', 'duration', 'order_in_course', 'transcribed']
+    const update: Record<string, unknown> = {}
+    for (const f of allowed) {
+      if (body[f] !== undefined) update[f] = body[f]
+    }
+    if (!Object.keys(update).length) {
+      return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
+    }
+    const { error } = await supabase.from('lectures').update(update).eq('id', numericId)
+    if (error) {
+      console.error('[PATCH lecture]', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Entities ──────────────────────────────────────────────────────────────
+  const entityType = type as EntityType
 
   if (!(entityType in ENTITY_TYPES)) {
     return NextResponse.json({ error: 'Unknown entity type' }, { status: 400 })
   }
 
-  const body = await req.json() as {
-    name?:        string
-    hebrewName?:  string | null
-    description?: string | null
-  }
-
   const { nameField } = ENTITY_TYPES[entityType]
   const update: Record<string, unknown> = {}
 
-  if (body.name        !== undefined) update[nameField]     = body.name
-  if (body.hebrewName  !== undefined) update['hebrew_name'] = body.hebrewName
+  // Client sends raw DB field key: 'name' for directors/writers/etc, 'title' for films/books/paintings
+  if (body[nameField]  !== undefined) update[nameField]     = body[nameField]
+  if (body.hebrew_name !== undefined) update['hebrew_name'] = body.hebrew_name
   if (body.description !== undefined) update['description'] = body.description
 
-  if (Object.keys(update).length === 0) {
+  if (!Object.keys(update).length) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
   }
 
   const { error } = await supabase
     .from(entityType)
     .update(update)
-    .eq('id', parseInt(id, 10))
+    .eq('id', numericId)
 
   if (error) {
     console.error('[PATCH entity]', error)
@@ -57,9 +76,6 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const { nameField } = ENTITY_TYPES[entityType]
   const junction      = JUNCTION_MAP[entityType]
 
-  // ------------------------------------------------------------------
-  // 1. Fetch the entity row
-  // ------------------------------------------------------------------
   const { data: entityRows, error: fetchErr } = await supabase
     .from(entityType)
     .select('*')
@@ -72,9 +88,6 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
 
   const entity = entityRows[0] as Record<string, unknown>
 
-  // ------------------------------------------------------------------
-  // 2. Fetch junction rows (so we can restore links later)
-  // ------------------------------------------------------------------
   let junctionRows: Record<string, unknown>[] = []
   if (junction) {
     const { data } = await supabase
@@ -84,15 +97,9 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     junctionRows = ((data ?? []) as unknown as Record<string, unknown>[])
   }
 
-  // ------------------------------------------------------------------
-  // 3. Check R2 image
-  // ------------------------------------------------------------------
   const r2Key    = `${R2_IMAGES_PREFIX}/${entityType}/${numericId}.jpeg`
   const hasImage = await r2KeyExists(r2Key).catch(() => false)
 
-  // ------------------------------------------------------------------
-  // 4. Save backup to deleted_entities
-  // ------------------------------------------------------------------
   const { error: backupErr } = await supabase
     .from('deleted_entities')
     .insert({
@@ -110,9 +117,6 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: backupErr.message }, { status: 500 })
   }
 
-  // ------------------------------------------------------------------
-  // 5. Move R2 image to deleted/ prefix (best-effort)
-  // ------------------------------------------------------------------
   if (hasImage) {
     try {
       await copyInR2(r2Key, `deleted/${r2Key}`)
@@ -122,9 +126,6 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     }
   }
 
-  // ------------------------------------------------------------------
-  // 6. Delete junction rows
-  // ------------------------------------------------------------------
   if (junction) {
     const { error } = await supabase
       .from(junction.table)
@@ -137,9 +138,6 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     }
   }
 
-  // ------------------------------------------------------------------
-  // 7. Delete the entity row
-  // ------------------------------------------------------------------
   const { error: delErr } = await supabase
     .from(entityType)
     .delete()
