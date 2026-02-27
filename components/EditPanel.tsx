@@ -318,7 +318,7 @@ function ImageUploader({
 
   const emptyClasses = clsx(
     'relative rounded-xl border-2 border-dashed transition-all duration-200 overflow-hidden',
-    'aspect-[4/3] flex flex-col items-center justify-center gap-3',
+    'h-20 flex items-center justify-center gap-3',
     dragOver
       ? 'border-aura-accent/60 bg-aura-accent/[0.06] cursor-copy'
       : 'border-white/[0.10] hover:border-aura-accent/30 hover:bg-white/[0.02] cursor-pointer',
@@ -327,7 +327,7 @@ function ImageUploader({
   return (
     <div className="space-y-3">
       {preview ? (
-        <div className="relative rounded-xl overflow-hidden aspect-[4/3]">
+        <div className="relative rounded-xl overflow-hidden h-28">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={preview} alt={entityName} className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-black/0 hover:bg-black/50 transition-colors flex items-center justify-center gap-3 opacity-0 hover:opacity-100">
@@ -804,6 +804,9 @@ function EntityEditor() {
   const [imageFilter,  setImageFilter]  = useState<'missing' | null>(null)
   const [searchQuery,    setSearchQuery]    = useState('')
   const [filterCourseId, setFilterCourseId] = useState<number | null>(null)
+  const [deleteConfirm,  setDeleteConfirm]  = useState(false)
+  const [deleting,       setDeleting]       = useState(false)
+  const { error: toastError, success } = useToast()
   const { entities: allCourses } = useEntities('courses')
   const { entities, loading, refresh, total, withImages } = useEntities(
     selectedType,
@@ -824,6 +827,24 @@ function EntityEditor() {
     setImageFilter(null)
     setSearchQuery('')
     setFilterCourseId(null)
+    setDeleteConfirm(false)
+  }
+
+  async function handleDeleteEntity() {
+    if (!selectedEntity || selectedId == null) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/entities/${selectedType}/${selectedId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Delete failed')
+      success('Deleted', `"${entityDisplayName(selectedEntity, selectedType)}" removed.`)
+      setSelectedId(null)
+      setDeleteConfirm(false)
+      refresh()
+    } catch (e) {
+      toastError('Delete failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeleting(false)
+    }
   }
 
   function toggleFilter(f: 'missing') {
@@ -985,7 +1006,7 @@ function EntityEditor() {
             <>
               <select
                 value={selectedId ?? ''}
-                onChange={e => setSelectedId(e.target.value ? Number(e.target.value) : null)}
+                onChange={e => { setSelectedId(e.target.value ? Number(e.target.value) : null); setDeleteConfirm(false) }}
                 className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl
                            px-3 py-2.5 text-sm text-aura-text pr-8
                            focus:outline-none focus:border-aura-accent/40 transition-colors"
@@ -1031,14 +1052,48 @@ function EntityEditor() {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedId(null)}
-                className="text-aura-muted/40 hover:text-aura-muted p-1 rounded-lg hover:bg-white/[0.05] transition-colors shrink-0"
-              >
-                <X size={13} />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirm(v => !v)}
+                  className="text-aura-muted/40 hover:text-aura-error p-1 rounded-lg hover:bg-aura-error/[0.08] transition-colors"
+                  title="Delete entity"
+                >
+                  <Trash2 size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedId(null); setDeleteConfirm(false) }}
+                  className="text-aura-muted/40 hover:text-aura-muted p-1 rounded-lg hover:bg-white/[0.05] transition-colors"
+                >
+                  <X size={13} />
+                </button>
+              </div>
             </div>
+
+            {/* Delete confirmation strip */}
+            {deleteConfirm && (
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-aura-error/[0.07] border-b border-aura-error/20">
+                <span className="text-xs text-aura-error flex-1">Delete permanently?</span>
+                <button
+                  type="button"
+                  onClick={handleDeleteEntity}
+                  disabled={deleting}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-aura-error/90 text-white text-xs font-semibold hover:bg-aura-error disabled:opacity-50"
+                >
+                  {deleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirm(false)}
+                  disabled={deleting}
+                  className="px-2.5 py-1 rounded-lg text-xs text-aura-muted border border-white/[0.08] hover:bg-white/[0.04]"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
 
             {/* Sub-tabs: only when image is supported */}
             {showImageTab && (
@@ -1715,7 +1770,6 @@ export function EditPanel() {
       <div className="glass rounded-2xl p-4 border border-white/[0.07]">
         <EntityEditor />
       </div>
-      <LectureEntityEditor />
     </div>
   )
 }
