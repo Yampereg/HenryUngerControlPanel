@@ -95,7 +95,7 @@ const FIELD_MAP: Record<EditableType, FieldDef[]> = {
     // No image
     { key: 'title',           label: 'Title',           type: 'text',     required: true, placeholder: 'Lecture title' },
     { key: 'synopsis',        label: 'Synopsis',        type: 'textarea', placeholder: 'Brief summary…' },
-    { key: 'date',            label: 'Date',            type: 'text',     placeholder: 'YYYY-MM-DD' },
+    { key: 'date',            label: 'Date',            type: 'text',     placeholder: 'DD.MM.YYYY' },
     { key: 'duration',        label: 'Duration (min)',  type: 'number',   placeholder: '90' },
     { key: 'order_in_course', label: 'Order in Course', type: 'number',   placeholder: '1' },
     { key: 'transcribed',     label: 'Transcribed',     type: 'boolean' },
@@ -1359,7 +1359,13 @@ export function LectureMetaEditor() {
 
   useEffect(() => {
     if (lecture) {
-      setValues(Object.fromEntries(FIELD_MAP.lectures.map(f => [f.key, lecture[f.key] ?? null])))
+      const vals = Object.fromEntries(FIELD_MAP.lectures.map(f => [f.key, lecture[f.key] ?? null]))
+      // Normalize date to DD.MM.YYYY (handles stored DD/MM/YYYY or ISO YYYY-MM-DD)
+      if (typeof vals.date === 'string' && vals.date) {
+        const iso = (vals.date as string).match(/^(\d{4})-(\d{2})-(\d{2})$/)
+        vals.date = iso ? `${iso[3]}.${iso[2]}.${iso[1]}` : (vals.date as string).replace(/\//g, '.')
+      }
+      setValues(vals)
       setDirty(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
