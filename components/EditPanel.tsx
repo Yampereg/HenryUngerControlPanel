@@ -21,7 +21,7 @@ import {
   Loader2, Trash2, FileImage, RefreshCw,
   ChevronDown, ToggleLeft, ToggleRight, Search, Link,
 } from 'lucide-react'
-import { EntityType, ENTITY_TYPES } from '@/lib/constants'
+import { EntityType, ENTITY_TYPES, JUNCTION_MAP } from '@/lib/constants'
 import { useToast } from './ToastProvider'
 import clsx from 'clsx'
 
@@ -1191,6 +1191,217 @@ export function LectureMetaEditor() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LectureEntityEditor — toggle discussed/mentioned for lecture entity links
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LECTURE_ENTITY_CATEGORIES = Object.keys(JUNCTION_MAP) as EntityType[]
+
+interface LectureEntityRow {
+  junctionId:       number
+  entityId:         number
+  displayName:      string
+  hebrewName:       string | null
+  relationshipType: 'discussed' | 'mentioned'
+}
+
+type CategoryState = { rows: LectureEntityRow[]; loading: boolean }
+
+function emptyCategories(): Record<EntityType, CategoryState> {
+  return Object.fromEntries(
+    LECTURE_ENTITY_CATEGORIES.map(cat => [cat, { rows: [], loading: false }])
+  ) as Record<EntityType, CategoryState>
+}
+
+export function LectureEntityEditor() {
+  const { entities: courses, loading: coursesLoading } = useEntities('courses')
+  const { error: toastError }                          = useToast()
+
+  const [courseId,        setCourseId]        = useState<number | null>(null)
+  const [lectureId,       setLectureId]       = useState<number | null>(null)
+  const [lectures,        setLectures]        = useState<EntityRow[]>([])
+  const [lecturesLoading, setLecturesLoading] = useState(false)
+  const [catData,         setCatData]         = useState<Record<EntityType, CategoryState>>(emptyCategories)
+
+  // Load lectures when course changes
+  useEffect(() => {
+    if (courseId == null) { setLectures([]); setLectureId(null); return }
+    setLecturesLoading(true)
+    fetch(`/api/entities/lectures?courseId=${courseId}&all=true`)
+      .then(r => r.json())
+      .then(d => setLectures(Array.isArray(d) ? d : (d.entities ?? [])))
+      .finally(() => setLecturesLoading(false))
+  }, [courseId])
+
+  // Fetch all categories when lecture changes
+  useEffect(() => {
+    if (lectureId == null) { setCatData(emptyCategories()); return }
+    setCatData(Object.fromEntries(
+      LECTURE_ENTITY_CATEGORIES.map(cat => [cat, { rows: [], loading: true }])
+    ) as Record<EntityType, CategoryState>)
+    for (const cat of LECTURE_ENTITY_CATEGORIES) {
+      fetch(`/api/lecture-entities?lectureId=${lectureId}&category=${cat}`)
+        .then(r => r.json())
+        .then(d => setCatData(prev => ({ ...prev, [cat]: { rows: d.entities ?? [], loading: false } })))
+        .catch(()  => setCatData(prev => ({ ...prev, [cat]: { rows: [],            loading: false } })))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lectureId])
+
+  async function toggleRel(cat: EntityType, row: LectureEntityRow) {
+    const newRel = row.relationshipType === 'discussed' ? 'mentioned' : 'discussed'
+    // Optimistic update
+    setCatData(prev => ({
+      ...prev,
+      [cat]: { ...prev[cat], rows: prev[cat].rows.map(r => r.junctionId === row.junctionId ? { ...r, relationshipType: newRel } : r) },
+    }))
+    try {
+      const res = await fetch('/api/lecture-entities', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ junctionId: row.junctionId, category: cat, relationshipType: newRel }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Update failed')
+    } catch (e) {
+      // Revert on error
+      setCatData(prev => ({
+        ...prev,
+        [cat]: { ...prev[cat], rows: prev[cat].rows.map(r => r.junctionId === row.junctionId ? { ...r, relationshipType: row.relationshipType } : r) },
+      }))
+      toastError('Update failed', e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const anyLoading  = LECTURE_ENTITY_CATEGORIES.some(cat => catData[cat].loading)
+  const anyEntities = LECTURE_ENTITY_CATEGORIES.some(cat => catData[cat].rows.length > 0)
+
+  return (
+    <div className="glass rounded-2xl p-4 border border-white/[0.07] space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="text-base">🔗</span>
+        <h3 className="text-sm font-bold text-aura-text">Lecture Entities</h3>
+      </div>
+
+      {/* Course picker */}
+      <div className="relative">
+        {coursesLoading ? (
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-black/20 border border-white/[0.08]">
+            <Loader2 size={12} className="animate-spin text-aura-muted" />
+            <span className="text-xs text-aura-muted">Loading courses…</span>
+          </div>
+        ) : (
+          <>
+            <select
+              value={courseId ?? ''}
+              onChange={e => { setCourseId(e.target.value ? Number(e.target.value) : null); setLectureId(null) }}
+              className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40"
+            >
+              <option value="">— select course —</option>
+              {courses.map(c => (
+                <option key={c.id as number} value={c.id as number}>{c.title as string}</option>
+              ))}
+            </select>
+            <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+          </>
+        )}
+      </div>
+
+      {/* Lecture picker */}
+      {courseId != null && (
+        <div className="relative">
+          {lecturesLoading ? (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-black/20 border border-white/[0.08]">
+              <Loader2 size={12} className="animate-spin text-aura-muted" />
+              <span className="text-xs text-aura-muted">Loading lectures…</span>
+            </div>
+          ) : (
+            <>
+              <select
+                value={lectureId ?? ''}
+                onChange={e => setLectureId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40"
+              >
+                <option value="">— select lecture —</option>
+                {lectures.map(l => (
+                  <option key={l.id as number} value={l.id as number}>
+                    {l.order_in_course != null ? `#${l.order_in_course} ` : ''}{l.title as string}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Entity category sections */}
+      {lectureId != null && (
+        <div className="space-y-2">
+          {LECTURE_ENTITY_CATEGORIES.map(cat => {
+            const { rows, loading } = catData[cat]
+            if (!loading && rows.length === 0) return null
+            const tc        = ENTITY_TYPES[cat]
+            const discussed = rows.filter(r => r.relationshipType === 'discussed').length
+            return (
+              <div key={cat} className="rounded-xl border border-white/[0.07] overflow-hidden">
+                <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.02] border-b border-white/[0.05]">
+                  <span className="text-sm">{tc.icon}</span>
+                  <span className="text-xs font-semibold text-aura-text">{tc.label}</span>
+                  {!loading && (
+                    <span className="ml-auto text-[10px] text-aura-muted">
+                      {discussed}/{rows.length} discussed
+                    </span>
+                  )}
+                </div>
+                {loading ? (
+                  <div className="flex items-center gap-2 px-3 py-2.5">
+                    <Loader2 size={11} className="animate-spin text-aura-muted" />
+                    <span className="text-xs text-aura-muted">Loading…</span>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/[0.04]">
+                    {rows.map(row => (
+                      <div
+                        key={row.junctionId}
+                        className="flex items-center gap-2 px-3 py-2 hover:bg-white/[0.02] transition-colors"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-aura-text truncate">{row.displayName}</p>
+                          {row.hebrewName && (
+                            <p className="text-[10px] text-aura-muted truncate" dir="rtl">{row.hebrewName}</p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleRel(cat, row)}
+                          className={clsx(
+                            'shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all',
+                            row.relationshipType === 'discussed'
+                              ? 'bg-aura-success/10 border-aura-success/30 text-aura-success hover:bg-aura-success/20'
+                              : 'bg-white/[0.03] border-white/[0.10] text-aura-muted hover:border-white/[0.20] hover:text-aura-text',
+                          )}
+                        >
+                          {row.relationshipType}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {!anyLoading && !anyEntities && (
+            <div className="rounded-xl border border-white/[0.06] py-6 flex items-center justify-center">
+              <p className="text-xs text-aura-muted">No entities linked to this lecture</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // EditPanel — main export
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1209,6 +1420,7 @@ export function EditPanel() {
       <div className="glass rounded-2xl p-4 border border-white/[0.07]">
         <EntityEditor />
       </div>
+      <LectureEntityEditor />
     </div>
   )
 }
