@@ -23,8 +23,8 @@ Separate into:
 - DISCUSSED: Main subjects of the lecture
 - MENTIONED: Referenced in passing
 
-Return as plain text IN ENGLISH:
-DISCUSSED: James Joyce, Franz Kafka
+Return as plain text IN ENGLISH (separate with semicolons — do NOT use commas, as names may contain commas):
+DISCUSSED: James Joyce; Franz Kafka
 MENTIONED: T.S. Eliot
 
 If none, write "DISCUSSED: none" or "MENTIONED: none"

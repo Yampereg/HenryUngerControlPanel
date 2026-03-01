@@ -208,6 +208,7 @@ export function GeneratePanel() {
   // ── result state ─────────────────────────────────────────────────────────
   const [phase,            setPhase]            = useState<Phase>('idle')
   const [result,           setResult]           = useState<Record<string, unknown> | null>(null)
+  const [selectedTitle,    setSelectedTitle]    = useState<string | null>(null)
   const [pdfJob,           setPdfJob]           = useState<{ id: number; status: string } | null>(null)
   const [showPdfAfterTitle, setShowPdfAfterTitle] = useState(false)
 
@@ -272,6 +273,7 @@ export function GeneratePanel() {
   function resetResult() {
     setPhase('idle')
     setResult(null)
+    setSelectedTitle(null)
     setPdfJob(null)
     setShowPdfAfterTitle(false)
   }
@@ -314,8 +316,11 @@ export function GeneratePanel() {
     if (action === 'decline') { resetResult(); return }
     setPhase('confirming')
     try {
+      const confirmData = (genType === 'lecture_title' && selectedTitle)
+        ? { ...result, after: selectedTitle }
+        : result
       const body: Record<string, unknown> = {
-        type: genType, action, data: result,
+        type: genType, action, data: confirmData,
       }
       if (lectureId) body.lectureId = Number(lectureId)
       if (courseId)  body.courseId  = Number(courseId)
@@ -479,11 +484,36 @@ export function GeneratePanel() {
               <button onClick={resetResult} className="text-aura-muted"><X size={14} /></button>
             </div>
 
-            {/* Title / synopsis / course synopsis / entity desc — before/after */}
-            {(genType === 'lecture_title' || genType === 'lecture_synopsis' ||
+            {/* Lecture title — pick one of 5 */}
+            {genType === 'lecture_title' && Array.isArray(result.titles) && (
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-aura-muted mb-1">Current Title</p>
+                <p className="text-sm text-aura-text/60 mb-3 px-1 leading-snug">{String(result.before || '—')}</p>
+                <p className="text-[10px] uppercase tracking-widest text-aura-muted mb-2">Choose a Title</p>
+                <div className="space-y-1.5">
+                  {(result.titles as string[]).map((t, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setSelectedTitle(t)}
+                      className={clsx(
+                        'w-full text-left px-3 py-2.5 rounded-xl text-sm leading-snug transition-all duration-150 border',
+                        selectedTitle === t
+                          ? 'bg-aura-accent/10 border-aura-accent/40 text-aura-text'
+                          : 'bg-black/20 border-white/[0.06] text-aura-text/70 hover:text-aura-text hover:border-white/[0.15]',
+                      )}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Synopsis / course synopsis / entity desc — before/after */}
+            {(genType === 'lecture_synopsis' ||
               genType === 'course_synopsis' || genType === 'entity_desc') && (
               <BeforeAfter
-                label={genType === 'lecture_title' ? 'Title' : genType === 'lecture_synopsis' ? 'Synopsis' : genType === 'course_synopsis' ? 'Course Description' : 'Entity Description'}
+                label={genType === 'lecture_synopsis' ? 'Synopsis' : genType === 'course_synopsis' ? 'Course Description' : 'Entity Description'}
                 before={String(result.before ?? '')}
                 after={String(result.after ?? '')}
               />
@@ -517,10 +547,11 @@ export function GeneratePanel() {
               ) : (
                 <>
                   <button onClick={() => handleConfirm('confirm')}
+                    disabled={phase === 'confirming' || (genType === 'lecture_title' && !selectedTitle)}
                     className={clsx(
                       'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl',
                       'bg-aura-accent/10 border border-aura-accent/30 text-aura-accent text-xs font-semibold',
-                      phase === 'confirming' && 'opacity-60 pointer-events-none',
+                      (phase === 'confirming' || (genType === 'lecture_title' && !selectedTitle)) && 'opacity-40 pointer-events-none',
                     )}>
                     {phase === 'confirming'
                       ? <><Loader2 size={12} className="animate-spin" /> Saving…</>

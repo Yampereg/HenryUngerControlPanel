@@ -2,13 +2,17 @@ Extract ALL entities mentioned in this Hebrew lecture transcript.
 Return a JSON object with exactly the following structure — no extra keys, no markdown fences.
 
 Rules per category:
-- directors:    Film directors explicitly named (English names only, not writers/philosophers)
-- films:        Film titles explicitly mentioned (English titles only, real films)
-- writers:      Literary authors/novelists/poets/playwrights explicitly named (English)
+- directors:    Film directors explicitly named — full names only, English, not writers/philosophers
+- films:        Film titles explicitly mentioned — English titles only, real films.
+                ⛔ Only include if mentioned AS A FILM (cinematography, director, scenes discussed).
+                Do NOT include if the same title was discussed as a novel/book — even if a film adaptation exists.
+- writers:      Literary authors/novelists/poets/playwrights explicitly named — full names only, English
 - books:        Book/literary work titles explicitly mentioned (English or Hebrew)
-- painters:     Visual artists (painters, sculptors) explicitly named (English or Hebrew)
+- painters:     Visual artists (painters, sculptors) explicitly named — full names only (English or Hebrew)
 - paintings:    Specific artwork titles explicitly mentioned (Hebrew preferred)
-- philosophers: Philosophers and intellectuals explicitly named (English) — NOT poets, novelists, or film directors; only people primarily known as thinkers
+- philosophers: Philosophers and intellectuals explicitly named — full names only, English.
+                NOT poets, novelists, or film directors. Only people whose PRIMARY identity is as a thinker.
+                ⛔ If someone is mainly known as a novelist/playwright (e.g. Camus, Sartre, Kafka, Beckett) — put them in writers, not here.
 - themes:       Exactly 10 broad academic/philosophical themes from the lecture (Hebrew)
 
 For each category use two lists:
@@ -16,6 +20,7 @@ For each category use two lists:
   "mentioned" — referenced briefly or in passing
 
 CRITICAL: Only include entities EXPLICITLY NAMED in the transcript. No guessing or inference.
+Full names only — do not return last names alone (e.g. "Franz Kafka" not "Kafka", "Wes Anderson" not "Anderson").
 Names may appear in Hebrew transliteration — output in the standard English form.
 
 Return ONLY valid JSON, nothing else:

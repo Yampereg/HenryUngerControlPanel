@@ -10,13 +10,19 @@ CRITICAL RULES:
    Do NOT include TV shows, books, or plays.
    Film titles may appear in Hebrew (translated or transliterated) — recognize and output the English title.
 
-Separate into:
-- DISCUSSED: Main subjects of the lecture
-- MENTIONED: Referenced in passing
+⛔ IMPORTANT — FILMS VS. BOOKS:
+   Many works exist both as a book AND as a film adaptation.
+   Include a title in this list ONLY if it was mentioned specifically AS A FILM — meaning the lecturer refers to it as a movie, discusses its cinematography, director, scenes, or visual/cinematic aspects.
+   If the same title was discussed as a novel, book, or literary work — do NOT include it here, even if a film adaptation exists.
+   When in doubt whether it was referenced as a film or as a book — do NOT include it.
 
-Return as plain text with ENGLISH titles:
-DISCUSSED: Film 1, Film 2
-MENTIONED: Film 3, Film 4
+Separate into:
+- DISCUSSED: Film is one of the main subjects of the lecture — the lecturer analyzes it in depth, describes scenes, or it is projected and discussed on screen
+- MENTIONED: Film is brought up briefly as a reference, comparison, or example — if in doubt, use MENTIONED
+
+Return as plain text with ENGLISH titles (separate with semicolons — do NOT use commas, as film titles may contain commas):
+DISCUSSED: Film 1; Film 2
+MENTIONED: Film 3; Film 4
 
 If none, write "DISCUSSED: none" or "MENTIONED: none"
 

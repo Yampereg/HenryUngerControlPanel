@@ -22,10 +22,14 @@ RULES:
 2. Full names only
 3. ONLY if the person is explicitly named in the transcript
 4. Skip if unsure — when in doubt between philosopher and writer/poet, put them in writers
+5. ⛔ STRICT RULE — Only include people whose PRIMARY public identity is as a philosopher, theorist, or intellectual.
+   If someone is mainly known as a novelist, playwright, or poet — even if they also wrote philosophical essays or had philosophical ideas — do NOT include them here. Put them in writers.
+   Examples of people who belong in WRITERS, not here: Albert Camus, Jean-Paul Sartre (primarily novelist/playwright), Franz Kafka, Samuel Beckett, Simone de Beauvoir (if discussed as a novelist), etc.
+   When uncertain, default to writers — only philosophers known first and foremost as thinkers belong in this list.
 
 Separate into:
-- DISCUSSED: Main subjects of the lecture
-- MENTIONED: Referenced in passing
+- DISCUSSED: Philosopher/thinker is one of the main subjects of the lecture — their ideas, theories, or texts are analyzed in depth
+- MENTIONED: Philosopher/thinker is brought up briefly as a reference or comparison — if in doubt, use MENTIONED
 
 Return as plain text in ENGLISH (separate with semicolons — do NOT use commas, as names may contain commas):
 DISCUSSED: Philosopher 1; Philosopher 2

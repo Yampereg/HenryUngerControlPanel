@@ -23,9 +23,9 @@ Separate into:
 - DISCUSSED: Main subjects of the lecture
 - MENTIONED: Referenced in passing
 
-Return as plain text in ENGLISH:
-DISCUSSED: Director 1, Director 2
-MENTIONED: Director 3, Director 4
+Return as plain text in ENGLISH (separate with semicolons — do NOT use commas, as names may contain commas):
+DISCUSSED: Director 1; Director 2
+MENTIONED: Director 3; Director 4
 
 If none, write "DISCUSSED: none" or "MENTIONED: none"
 

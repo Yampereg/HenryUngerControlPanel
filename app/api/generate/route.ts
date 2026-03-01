@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai'
 import { supabase } from '@/lib/supabase'
 import { getR2Text } from '@/lib/r2'
 import fs from 'fs'
@@ -51,15 +51,58 @@ function loadPrompt(filename: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Response schemas
+// ---------------------------------------------------------------------------
+const ENTITY_LIST_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    discussed: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    mentioned: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+  },
+}
+
+const SCHEMAS = {
+  titleSynopsis: {
+    type: SchemaType.OBJECT,
+    properties: {
+      title:    { type: SchemaType.STRING },
+      synopsis: { type: SchemaType.STRING },
+    },
+    required: ['title', 'synopsis'],
+  },
+  description: {
+    type: SchemaType.OBJECT,
+    properties: { description: { type: SchemaType.STRING } },
+    required: ['description'],
+  },
+  entities: {
+    type: SchemaType.OBJECT,
+    properties: {
+      directors:    ENTITY_LIST_SCHEMA,
+      films:        ENTITY_LIST_SCHEMA,
+      writers:      ENTITY_LIST_SCHEMA,
+      books:        ENTITY_LIST_SCHEMA,
+      painters:     ENTITY_LIST_SCHEMA,
+      paintings:    ENTITY_LIST_SCHEMA,
+      philosophers: ENTITY_LIST_SCHEMA,
+      themes:       ENTITY_LIST_SCHEMA,
+    },
+  },
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-async function callGemini(prompt: string, jsonMode = false): Promise<string> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function callGemini(prompt: string, jsonMode = false, temperature?: number, schema?: any): Promise<string> {
+  const useJson = jsonMode || schema != null
   const model = genai.getGenerativeModel({
     model: 'gemini-2.5-flash',
     generationConfig: {
-      temperature: jsonMode ? 0.1 : 0.3,
+      temperature: temperature ?? (jsonMode ? 0.1 : 0.3),
       maxOutputTokens: jsonMode ? 8000 : 6000,
-      ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
+      ...(useJson ? { responseMimeType: 'application/json' } : {}),
+      ...(schema   ? { responseSchema: schema }               : {}),
     },
   })
   const result = await model.generateContent(prompt)
@@ -82,7 +125,7 @@ async function extractEntities(
       const prompt = appendNote(
         loadPrompt('entities_all.txt').replace('{transcript}', transcript),
       )
-      const text   = await callGemini(prompt, true) // JSON mode
+      const text   = await callGemini(prompt, true, undefined, SCHEMAS.entities)
       // Strip markdown fences if present (older Gemini versions sometimes add them)
       const clean  = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
       const data   = JSON.parse(clean) as Record<string, { discussed?: string[]; mentioned?: string[] }>
@@ -185,22 +228,30 @@ export async function POST(req: NextRequest) {
 
       const transcript = await getR2Text(`${course.r2_dir}/${lec.order_in_course}/transcript.txt`)
       const prompt = appendNote(loadPrompt('title_synopsis.txt').replace('{transcript}', transcript.slice(0, 15000)))
-      const text   = await callGemini(prompt)
 
-      let title = '', synopsis = ''
-      const synopsisLines: string[] = []
-      let inSynopsis = false
-      for (const line of text.split('\n')) {
-        const stripped = line.trim()
-        if (stripped.startsWith('TITLE:'))         { title = stripped.slice(6).trim(); inSynopsis = false }
-        else if (stripped.startsWith('SYNOPSIS:')) { const f = stripped.slice(9).trim(); if (f) synopsisLines.push(f); inSynopsis = true }
-        else if (inSynopsis && stripped)           { synopsisLines.push(stripped) }
+      function parseTitleSynopsis(text: string): { title: string; synopsis: string } {
+        try { return JSON.parse(text) as { title: string; synopsis: string } } catch { /* fall through */ }
+        let title = ''
+        const synLines: string[] = []
+        let inSyn = false
+        for (const line of text.split('\n')) {
+          const s = line.trim()
+          if (s.startsWith('TITLE:'))         { title = s.slice(6).trim(); inSyn = false }
+          else if (s.startsWith('SYNOPSIS:')) { const f = s.slice(9).trim(); if (f) synLines.push(f); inSyn = true }
+          else if (inSyn && s)               { synLines.push(s) }
+        }
+        return { title, synopsis: synLines.join(' ').trim() }
       }
-      synopsis = synopsisLines.join(' ').trim()
 
       if (body.type === 'lecture_title') {
-        return NextResponse.json({ type: 'lecture_title', lectureId: body.lectureId, before: lec.title, after: title })
+        const texts = await Promise.all(
+          Array.from({ length: 5 }, () => callGemini(prompt, false, 0.9, SCHEMAS.titleSynopsis)),
+        )
+        const titles = texts.map(t => parseTitleSynopsis(t).title).filter(Boolean)
+        return NextResponse.json({ type: 'lecture_title', lectureId: body.lectureId, before: lec.title, titles })
       } else {
+        const text    = await callGemini(prompt, false, undefined, SCHEMAS.titleSynopsis)
+        const synopsis = parseTitleSynopsis(text).synopsis
         return NextResponse.json({ type: 'lecture_synopsis', lectureId: body.lectureId, before: lec.synopsis, after: synopsis })
       }
     }
@@ -224,7 +275,9 @@ export async function POST(req: NextRequest) {
           .replace('{title}', course.title)
           .replace('{lectures}', lecturesText)
       )
-      const after = await callGemini(prompt)
+      const text  = await callGemini(prompt, false, undefined, SCHEMAS.description)
+      let after: string
+      try { after = (JSON.parse(text) as { description: string }).description } catch { after = text }
 
       return NextResponse.json({ type: 'course_synopsis', courseId: body.courseId, before: course.description ?? '', after })
     }
@@ -271,7 +324,9 @@ export async function POST(req: NextRequest) {
           .replace(/\{name\}/g, name)
           .replace(/\{hebrew_name\}/g, hebrewName || name)
       )
-      const after = await callGemini(prompt)
+      const text2 = await callGemini(prompt, false, undefined, SCHEMAS.description)
+      let after: string
+      try { after = (JSON.parse(text2) as { description: string }).description } catch { after = text2 }
 
       return NextResponse.json({
         type: 'entity_desc', entityType: body.entityType, entityId: body.entityId,
