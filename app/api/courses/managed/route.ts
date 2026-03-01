@@ -8,7 +8,7 @@ import { listR2Prefixes } from '@/lib/r2'
 export async function GET() {
   const { data, error } = await supabase
     .from('courses')
-    .select('id, title, r2_dir, course_subjects(subject_id)')
+    .select('id, title, r2_dir')
     .not('r2_dir', 'is', null)
     .order('id', { ascending: false })
 
@@ -19,16 +19,22 @@ export async function GET() {
   const courses = data ?? []
   if (courses.length === 0) return NextResponse.json({ courses: [] })
 
-  // Count actual lecture rows per course
   const courseIds = courses.map(c => c.id)
-  const { data: lectureRows } = await supabase
-    .from('lectures')
-    .select('course_id')
-    .in('course_id', courseIds)
+
+  // Fetch lecture counts + subject assignments in parallel
+  const [{ data: lectureRows }, { data: csData }] = await Promise.all([
+    supabase.from('lectures').select('course_id').in('course_id', courseIds),
+    supabase.from('course_subjects').select('course_id, subject_id').in('course_id', courseIds),
+  ])
 
   const lectureCounts: Record<number, number> = {}
   for (const row of (lectureRows ?? []) as { course_id: number }[]) {
     lectureCounts[row.course_id] = (lectureCounts[row.course_id] ?? 0) + 1
+  }
+
+  const subjectMap: Record<number, number[]> = {}
+  for (const row of (csData ?? []) as { course_id: number; subject_id: number }[]) {
+    ;(subjectMap[row.course_id] ??= []).push(row.subject_id)
   }
 
   // Count R2 sub-directories per course — ALWAYS live, never cached
@@ -56,7 +62,7 @@ export async function GET() {
       id:               c.id,
       title:            c.title,
       r2_dir:           c.r2_dir,
-      subject_ids:      (c.course_subjects as { subject_id: number }[] ?? []).map(s => s.subject_id),
+      subject_ids:      subjectMap[c.id] ?? [],
       lecture_count:    lectureCounts[c.id] ?? 0,
       r2_lecture_count: r2CountMap[c.id] ?? null,
     })),
