@@ -10,9 +10,10 @@ import { RecoveryPanel } from './RecoveryPanel'
 import { RelationshipManager } from './RelationshipManager'
 import { CourseUploader } from './CourseUploader'
 import { GeneratePanel } from './GeneratePanel'
+import { ImageGame } from './ImageGame'
 import clsx from 'clsx'
 
-type Tab = 'edit' | 'merge' | 'entities' | 'recovery' | 'links' | 'courses' | 'generate'
+type Tab = 'edit' | 'merge' | 'entities' | 'recovery' | 'links' | 'courses' | 'generate' | 'images'
 
 // ---------------------------------------------------------------------------
 // Dashboard
@@ -66,6 +67,7 @@ export function Dashboard() {
               { id: 'links',    label: 'Links',    icon: <Link2      size={12} /> },
               { id: 'courses',  label: 'Courses',  icon: <Film       size={12} /> },
               { id: 'generate', label: 'Generate', icon: <Sparkles   size={12} /> },
+              { id: 'images',   label: 'Images',   icon: <ImageIcon  size={12} /> },
             ] as { id: Tab; label: string; icon: React.ReactNode }[]).map(({ id, label, icon }) => (
               <button
                 key={id}
@@ -162,6 +164,17 @@ export function Dashboard() {
               transition={{ duration: 0.18 }}
             >
               <GeneratePanel />
+            </motion.div>
+          )}
+          {tab === 'images' && (
+            <motion.div
+              key="images"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+            >
+              <ImageGame />
             </motion.div>
           )}
         </AnimatePresence>
