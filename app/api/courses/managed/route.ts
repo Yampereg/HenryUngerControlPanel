@@ -3,8 +3,6 @@ import { supabase } from '@/lib/supabase'
 import { listR2Prefixes } from '@/lib/r2'
 
 // GET /api/courses/managed
-// Returns courses that have an r2_dir set, with actual lecture counts from the DB
-// and the LIVE total available lecture count from R2 (always re-fetched, never stale).
 export async function GET() {
   const { data, error } = await supabase
     .from('courses')
@@ -21,7 +19,6 @@ export async function GET() {
 
   const courseIds = courses.map(c => c.id)
 
-  // Fetch lecture counts + subject assignments in parallel
   const [{ data: lectureRows }, { data: csData }] = await Promise.all([
     supabase.from('lectures').select('course_id').in('course_id', courseIds),
     supabase.from('course_subjects').select('course_id, subject_id').in('course_id', courseIds),
@@ -34,10 +31,10 @@ export async function GET() {
 
   const subjectMap: Record<number, number[]> = {}
   for (const row of (csData ?? []) as { course_id: number; subject_id: number }[]) {
-    ;(subjectMap[row.course_id] ??= []).push(row.subject_id)
+    if (!subjectMap[row.course_id]) subjectMap[row.course_id] = []
+    subjectMap[row.course_id].push(row.subject_id)
   }
 
-  // Count R2 sub-directories per course — ALWAYS live, never cached
   const r2Counts = await Promise.all(
     courses.map(async c => {
       const r2Dir = (c.r2_dir as string).replace(/\/+$/, '')

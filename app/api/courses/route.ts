@@ -12,10 +12,10 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Build subject_id lookup
   const subjectMap: Record<number, number[]> = {}
   for (const row of (csData ?? []) as { course_id: number; subject_id: number }[]) {
-    ;(subjectMap[row.course_id] ??= []).push(row.subject_id)
+    if (!subjectMap[row.course_id]) subjectMap[row.course_id] = []
+    subjectMap[row.course_id].push(row.subject_id)
   }
 
   const courses = (coursesData ?? []).map((c: { id: number; title: string }) => ({
