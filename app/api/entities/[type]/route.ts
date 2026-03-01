@@ -64,7 +64,7 @@ export async function GET(
 
     // 1b. For courses: attach subject_ids from junction table
     if (entityType === 'courses' && rows && rows.length > 0) {
-      const courseIds = (rows as { id: number }[]).map(r => r.id)
+      const courseIds = (rows as unknown as { id: number }[]).map(r => r.id)
       const { data: csData } = await supabase
         .from('course_subjects')
         .select('course_id, subject_id')
@@ -74,7 +74,7 @@ export async function GET(
         if (!subjectMap[cs.course_id]) subjectMap[cs.course_id] = []
         subjectMap[cs.course_id].push(cs.subject_id)
       }
-      for (const row of rows as Record<string, unknown>[]) {
+      for (const row of rows as unknown as Record<string, unknown>[]) {
         row.subject_ids = subjectMap[row.id as number] ?? []
       }
     }
