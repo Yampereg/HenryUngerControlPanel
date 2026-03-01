@@ -19,6 +19,7 @@ type GenerateType =
   | 'entities'
   | 'entity_desc'
   | 'summary_pdf'
+  | 'chapters_vtt'
 
 interface Course   { id: number; title: string }
 interface Lecture  { id: number; title: string; order_in_course: number; course_id: number }
@@ -247,16 +248,17 @@ export function GeneratePanel() {
       .catch(console.error)
   }, [entityType, genType])
 
-  // ── poll PDF job status ───────────────────────────────────────────────────
+  // ── poll queued job status (summary_pdf or chapters_vtt) ─────────────────
   useEffect(() => {
     if (!pdfJob || pdfJob.status === 'done' || pdfJob.status === 'failed') return
+    const jobType = genType === 'chapters_vtt' ? 'chapters_vtt' : 'summary_pdf'
     const timer = setInterval(async () => {
-      const r = await fetch(`/api/generate/pdf-status?lectureId=${lectureId}`)
+      const r = await fetch(`/api/generate/pdf-status?lectureId=${lectureId}&jobType=${jobType}`)
       const d = await r.json()
       if (d.job) setPdfJob(d.job)
     }, 4000)
     return () => clearInterval(timer)
-  }, [pdfJob, lectureId])
+  }, [pdfJob, lectureId, genType])
 
   // ── helpers ───────────────────────────────────────────────────────────────
   function needsCourse(t: GenerateType) { return t !== 'entity_desc' }
@@ -297,7 +299,7 @@ export function GeneratePanel() {
 
       if (!res.ok) throw new Error(data.error ?? 'Generation failed')
 
-      if (genType === 'summary_pdf') {
+      if (genType === 'summary_pdf' || genType === 'chapters_vtt') {
         setPdfJob({ id: data.jobId, status: 'pending' })
         setPhase('preview')
         return
@@ -368,6 +370,7 @@ export function GeneratePanel() {
     { id: 'entities',         label: 'Entities',         icon: <Users size={12} />    },
     { id: 'entity_desc',      label: 'Entity Desc',      icon: <Layers size={12} />   },
     { id: 'summary_pdf',      label: 'Summary PDF',      icon: <FileText size={12} /> },
+    { id: 'chapters_vtt',     label: 'Chapters VTT',     icon: <RefreshCw size={12} />},
   ]
 
   return (
@@ -567,8 +570,8 @@ export function GeneratePanel() {
           </motion.div>
         )}
 
-        {/* PDF queued (from direct PDF generation or post-title PDF button) */}
-        {pdfJob && ((phase === 'preview' && genType === 'summary_pdf') || phase === 'done') ? (
+        {/* Queued job status (summary_pdf or chapters_vtt) */}
+        {pdfJob && ((phase === 'preview' && (genType === 'summary_pdf' || genType === 'chapters_vtt')) || phase === 'done') ? (
           <motion.div
             key="pdf-status"
             initial={{ opacity: 0, y: 8 }}
@@ -583,7 +586,7 @@ export function GeneratePanel() {
                   ? <X size={14} className="text-aura-error" />
                   : <Loader2 size={14} className="animate-spin text-aura-accent" />}
               <span className="text-sm text-aura-text">
-                PDF regeneration:{' '}
+                {genType === 'chapters_vtt' ? 'Chapters VTT' : 'PDF'} regeneration:{' '}
                 <span className={clsx(
                   'font-semibold',
                   pdfJob.status === 'done' ? 'text-aura-success' :
@@ -598,7 +601,7 @@ export function GeneratePanel() {
             </div>
             {pdfJob.status !== 'done' && pdfJob.status !== 'failed' && (
               <p className="text-xs text-aura-muted mt-1.5">
-                The PDF will be generated in the background.
+                {genType === 'chapters_vtt' ? 'Chapters VTT' : 'The PDF'} will be generated in the background.
               </p>
             )}
           </motion.div>

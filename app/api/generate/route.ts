@@ -17,6 +17,7 @@ export type GenerateType =
   | 'entities'
   | 'entity_desc'
   | 'summary_pdf'
+  | 'chapters_vtt'
 
 const ENTITY_TYPES = [
   'directors','films','writers','books',
@@ -203,12 +204,12 @@ export async function POST(req: NextRequest) {
       return `${prompt}\n\nAdditional note: ${body.note.trim()}`
     }
 
-    // ── summary_pdf — queue to regen_jobs ─────────────────────────────────
-    if (body.type === 'summary_pdf') {
+    // ── summary_pdf / chapters_vtt — queue to regen_jobs ──────────────────
+    if (body.type === 'summary_pdf' || body.type === 'chapters_vtt') {
       if (!body.lectureId) return NextResponse.json({ error: 'lectureId required' }, { status: 400 })
       const { data, error } = await supabase
         .from('regen_jobs')
-        .insert({ job_type: 'summary_pdf', lecture_id: body.lectureId })
+        .insert({ job_type: body.type, lecture_id: body.lectureId })
         .select('id').single()
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
       return NextResponse.json({ status: 'queued', jobId: data.id })
