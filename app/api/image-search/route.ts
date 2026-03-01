@@ -23,6 +23,10 @@ async function searchGoogleCSE(q: string, num: number): Promise<string[]> {
     return []
   }
 
+  if (!json.items?.length) {
+    console.warn('[image-search] 0 results for query:', q, '| response keys:', Object.keys(json))
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (json.items ?? []).map((item: any) => item.link as string)
 }
