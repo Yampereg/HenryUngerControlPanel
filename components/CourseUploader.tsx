@@ -23,7 +23,7 @@ import clsx from 'clsx'
 // ---------------------------------------------------------------------------
 interface R2Dir         { dir: string; lectureCount: number; defaultTitle: string }
 interface Subject       { id: number; nameEn: string; nameHe: string }
-interface ManagedCourse { id: number; title: string; r2Dir: string; subjectId: number | null; lectureCount: number; r2LectureCount: number | null }
+interface ManagedCourse { id: number; title: string; r2Dir: string; subjectIds: number[]; lectureCount: number; r2LectureCount: number | null }
 interface LectureItem   {
   lectureNumber: number
   status:        'none' | 'pending' | 'running' | 'succeeded' | 'failed'
@@ -131,7 +131,7 @@ export function CourseUploader() {
   const [uploadStatus,    setUploadStatus]    = useState<UploadStatusData | null>(null)
   const [selectedDir,     setSelectedDir]     = useState<R2Dir | null>(null)
   const [title,           setTitle]           = useState('')
-  const [subjectId,       setSubjectId]       = useState<number | null>(null)
+  const [subjectIds,      setSubjectIds]      = useState<number[]>([])
   const [submitting,      setSubmitting]      = useState(false)
   const [currentCourse,   setCurrentCourse]   = useState<ManagedCourse | null>(null)
   const [lectures,        setLectures]        = useState<LectureItem[]>([])
@@ -157,10 +157,10 @@ export function CourseUploader() {
       if (mData.courses) {
         setManagedCourses(
           mData.courses.map((c: {
-            id: number; title: string; r2_dir: string; subject_id: number | null
+            id: number; title: string; r2_dir: string; subject_ids: number[]
             lecture_count: number; r2_lecture_count: number | null
           }) => ({
-            id: c.id, title: c.title, r2Dir: c.r2_dir, subjectId: c.subject_id,
+            id: c.id, title: c.title, r2Dir: c.r2_dir, subjectIds: c.subject_ids ?? [],
             lectureCount: c.lecture_count, r2LectureCount: c.r2_lecture_count,
           })),
         )
@@ -196,10 +196,10 @@ export function CourseUploader() {
       )
       setManagedCourses(
         (managedRes.courses ?? []).map((c: {
-          id: number; title: string; r2_dir: string; subject_id: number | null
+          id: number; title: string; r2_dir: string; subject_ids: number[]
           lecture_count: number; r2_lecture_count: number | null
         }) => ({
-          id: c.id, title: c.title, r2Dir: c.r2_dir, subjectId: c.subject_id,
+          id: c.id, title: c.title, r2Dir: c.r2_dir, subjectIds: c.subject_ids ?? [],
           lectureCount: c.lecture_count, r2LectureCount: c.r2_lecture_count,
         })),
       )
@@ -229,10 +229,10 @@ export function CourseUploader() {
       if (mData.courses) {
         setManagedCourses(
           mData.courses.map((c: {
-            id: number; title: string; r2_dir: string; subject_id: number | null
+            id: number; title: string; r2_dir: string; subject_ids: number[]
             lecture_count: number; r2_lecture_count: number | null
           }) => ({
-            id: c.id, title: c.title, r2Dir: c.r2_dir, subjectId: c.subject_id,
+            id: c.id, title: c.title, r2Dir: c.r2_dir, subjectIds: c.subject_ids ?? [],
             lectureCount: c.lecture_count, r2LectureCount: c.r2_lecture_count,
           })),
         )
@@ -261,7 +261,7 @@ export function CourseUploader() {
   async function handlePickDir(dir: R2Dir) {
     setSelectedDir(dir)
     setTitle(dir.defaultTitle)
-    setSubjectId(null)
+    setSubjectIds([])
     setPhase('form')
   }
 
@@ -284,7 +284,7 @@ export function CourseUploader() {
       const res  = await fetch('/api/courses/create', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ r2Dir: selectedDir.dir, title: title.trim(), subjectId }),
+        body:    JSON.stringify({ r2Dir: selectedDir.dir, title: title.trim(), subjectIds }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -295,7 +295,7 @@ export function CourseUploader() {
         id:             data.courseId as number,
         title:          title.trim(),
         r2Dir:          selectedDir.dir,
-        subjectId,
+        subjectIds,
         lectureCount:   0,
         r2LectureCount: selectedDir.lectureCount,
       }
@@ -413,7 +413,11 @@ export function CourseUploader() {
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
-  const subjectFor = (id: number | null) => id ? subjects.find(s => s.id === id) ?? null : null
+  const subjectsFor = (ids: number[]) => ids.map(id => subjects.find(s => s.id === id)).filter(Boolean) as Subject[]
+
+  function toggleSubjectId(id: number) {
+    setSubjectIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
 
   // -------------------------------------------------------------------------
   // Render
@@ -539,7 +543,7 @@ export function CourseUploader() {
                 </div>
                 <div className="divide-y divide-white/[0.03]">
                   {managedCourses.map(c => {
-                    const sub      = subjectFor(c.subjectId)
+                    const subs     = subjectsFor(c.subjectIds)
                     // r2LectureCount is always live from R2 (re-fetched on every load)
                     const r2Total  = c.r2LectureCount && c.r2LectureCount > 0 ? c.r2LectureCount : null
                     const total    = r2Total ?? (c.lectureCount > 0 ? c.lectureCount : null)
@@ -561,8 +565,8 @@ export function CourseUploader() {
                               {uploaded}/{total ?? '?'}
                             </span>
                           </div>
-                          {sub && (
-                            <p className="text-[10px] text-aura-muted">{sub.nameHe}</p>
+                          {subs.length > 0 && (
+                            <p className="text-[10px] text-aura-muted">{subs.map(s => s.nameHe).join(' · ')}</p>
                           )}
                           {pct !== null && (
                             <div className="h-0.5 rounded-full bg-white/[0.05] overflow-hidden">
@@ -626,39 +630,31 @@ export function CourseUploader() {
                 />
               </div>
 
-              {/* Subject */}
+              {/* Subject — multi-select toggle */}
               {subjects.length > 0 && (
                 <div>
                   <label className="block text-[11px] text-aura-muted uppercase tracking-wider mb-1.5">
-                    Subject <span className="normal-case font-normal opacity-60">(optional)</span>
+                    Subjects <span className="normal-case font-normal opacity-60">(optional · toggle multiple)</span>
                   </label>
                   <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => setSubjectId(null)}
-                      className={clsx(
-                        'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
-                        subjectId === null
-                          ? 'bg-white/[0.08] text-aura-text border-white/[0.14]'
-                          : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12]',
-                      )}
-                    >
-                      None
-                    </button>
-                    {subjects.map(s => (
-                      <button
-                        key={s.id}
-                        onClick={() => setSubjectId(s.id)}
-                        className={clsx(
-                          'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
-                          subjectId === s.id
-                            ? 'bg-aura-accent/10 text-aura-accent border-aura-accent/20'
-                            : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12] hover:text-aura-text',
-                        )}
-                      >
-                        {s.nameHe}
-                        <span className="ml-1 opacity-50 text-[10px]">{s.nameEn}</span>
-                      </button>
-                    ))}
+                    {subjects.map(s => {
+                      const active = subjectIds.includes(s.id)
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => toggleSubjectId(s.id)}
+                          className={clsx(
+                            'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
+                            active
+                              ? 'bg-aura-accent/10 text-aura-accent border-aura-accent/20'
+                              : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12] hover:text-aura-text',
+                          )}
+                        >
+                          {s.nameHe}
+                          <span className="ml-1 opacity-50 text-[10px]">{s.nameEn}</span>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )}

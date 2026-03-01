@@ -1,5 +1,3 @@
-// LOCATION: app/api/courses/managed/route.ts  (replace existing)
-
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { listR2Prefixes } from '@/lib/r2'
@@ -10,7 +8,7 @@ import { listR2Prefixes } from '@/lib/r2'
 export async function GET() {
   const { data, error } = await supabase
     .from('courses')
-    .select('id, title, r2_dir, subject_id')
+    .select('id, title, r2_dir, course_subjects(subject_id)')
     .not('r2_dir', 'is', null)
     .order('id', { ascending: false })
 
@@ -34,7 +32,6 @@ export async function GET() {
   }
 
   // Count R2 sub-directories per course — ALWAYS live, never cached
-  // This ensures the total is correct even after manually deleting R2 directories.
   const r2Counts = await Promise.all(
     courses.map(async c => {
       const r2Dir = (c.r2_dir as string).replace(/\/+$/, '')
@@ -55,10 +52,12 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    courses: courses.map(c => ({
-      ...c,
+    courses: courses.map((c: any) => ({
+      id:               c.id,
+      title:            c.title,
+      r2_dir:           c.r2_dir,
+      subject_ids:      (c.course_subjects as { subject_id: number }[] ?? []).map(s => s.subject_id),
       lecture_count:    lectureCounts[c.id] ?? 0,
-      // null means R2 dir not accessible; use DB count as fallback in UI
       r2_lecture_count: r2CountMap[c.id] ?? null,
     })),
   })

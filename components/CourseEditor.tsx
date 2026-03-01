@@ -10,7 +10,7 @@ import clsx from 'clsx'
 // Types
 // ---------------------------------------------------------------------------
 interface Subject { id: number; nameEn: string; nameHe: string }
-interface Course  { id: number; title: string; subjectId: number | null }
+interface Course  { id: number; title: string; subjectIds: number[] }
 
 // ---------------------------------------------------------------------------
 // Tag chip
@@ -95,11 +95,11 @@ export function CourseEditor() {
   const [saving,   setSaving]   = useState(false)
 
   // Edit state
-  const [editTitle,     setEditTitle]     = useState('')
-  const [editSubjectId, setEditSubjectId] = useState<number | null>(null)
-  const [editPlaces,    setEditPlaces]    = useState<string[]>([])
-  const [editYears,     setEditYears]     = useState<string[]>([])
-  const [loadingMeta,   setLoadingMeta]   = useState(false)
+  const [editTitle,      setEditTitle]      = useState('')
+  const [editSubjectIds, setEditSubjectIds] = useState<number[]>([])
+  const [editPlaces,     setEditPlaces]     = useState<string[]>([])
+  const [editYears,      setEditYears]      = useState<string[]>([])
+  const [loadingMeta,    setLoadingMeta]    = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -108,8 +108,8 @@ export function CourseEditor() {
     ])
       .then(([cData, sData]) => {
         setCourses(
-          (cData.courses ?? []).map((c: { id: number; title: string; subject_id: number | null }) => ({
-            id: c.id, title: c.title, subjectId: c.subject_id,
+          (cData.courses ?? []).map((c: { id: number; title: string; subject_ids: number[] }) => ({
+            id: c.id, title: c.title, subjectIds: c.subject_ids ?? [],
           })),
         )
         setSubjects(
@@ -137,7 +137,7 @@ export function CourseEditor() {
   function openEdit(course: Course) {
     setEditId(course.id)
     setEditTitle(course.title)
-    setEditSubjectId(course.subjectId)
+    setEditSubjectIds(course.subjectIds)
     setEditPlaces([])
     setEditYears([])
     loadCourseMeta(course.id)
@@ -149,6 +149,12 @@ export function CourseEditor() {
     setEditYears([])
   }
 
+  function toggleSubject(id: number) {
+    setEditSubjectIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id],
+    )
+  }
+
   async function handleSave() {
     if (!editId) return
     setSaving(true)
@@ -157,11 +163,11 @@ export function CourseEditor() {
         .map(y => parseInt(y, 10))
         .filter(y => !isNaN(y) && y > 0)
 
-      // Save title + subject
-      const res = await fetch('/api/courses', {
+      // Save title + subjects
+      const res = await fetch(`/api/courses/${editId}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ courseId: editId, title: editTitle.trim(), subjectId: editSubjectId }),
+        body:    JSON.stringify({ title: editTitle.trim(), subjectIds: editSubjectIds }),
       })
       if (!res.ok) throw new Error('Save failed')
 
@@ -175,7 +181,7 @@ export function CourseEditor() {
       setCourses(prev =>
         prev.map(c =>
           c.id === editId
-            ? { ...c, title: editTitle.trim(), subjectId: editSubjectId }
+            ? { ...c, title: editTitle.trim(), subjectIds: editSubjectIds }
             : c,
         ),
       )
@@ -206,8 +212,8 @@ export function CourseEditor() {
 
       <div className="divide-y divide-white/[0.03]">
         {courses.map(course => {
-          const subject = subjects.find(s => s.id === course.subjectId)
-          const isOpen  = editId === course.id
+          const courseSubjects = course.subjectIds.map(id => subjects.find(s => s.id === id)).filter(Boolean) as Subject[]
+          const isOpen         = editId === course.id
 
           return (
             <div key={course.id}>
@@ -219,8 +225,10 @@ export function CourseEditor() {
               >
                 <div className="min-w-0">
                   <p className="text-sm text-aura-text truncate">{course.title}</p>
-                  {subject && (
-                    <p className="text-[10px] text-aura-muted mt-0.5">{subject.nameHe}</p>
+                  {courseSubjects.length > 0 && (
+                    <p className="text-[10px] text-aura-muted mt-0.5">
+                      {courseSubjects.map(s => s.nameHe).join(' · ')}
+                    </p>
                   )}
                 </div>
                 {isOpen
@@ -255,38 +263,30 @@ export function CourseEditor() {
                         />
                       </div>
 
-                      {/* Subject pills */}
+                      {/* Subject pills — multi-select toggle */}
                       <div>
                         <label className="block text-[10px] text-aura-muted uppercase tracking-wider mb-1">
-                          Subject
+                          Subjects <span className="normal-case font-normal opacity-60">(toggle to select multiple)</span>
                         </label>
                         <div className="flex flex-wrap gap-1.5">
-                          <button
-                            onClick={() => setEditSubjectId(null)}
-                            className={clsx(
-                              'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
-                              editSubjectId === null
-                                ? 'bg-white/[0.08] text-aura-text border-white/[0.14]'
-                                : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12]',
-                            )}
-                          >
-                            None
-                          </button>
-                          {subjects.map(s => (
-                            <button
-                              key={s.id}
-                              onClick={() => setEditSubjectId(s.id)}
-                              className={clsx(
-                                'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
-                                editSubjectId === s.id
-                                  ? 'bg-aura-accent/10 text-aura-accent border-aura-accent/20'
-                                  : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12] hover:text-aura-text',
-                              )}
-                            >
-                              {s.nameHe}
-                              <span className="ml-1 opacity-50 text-[10px]">{s.nameEn}</span>
-                            </button>
-                          ))}
+                          {subjects.map(s => {
+                            const active = editSubjectIds.includes(s.id)
+                            return (
+                              <button
+                                key={s.id}
+                                onClick={() => toggleSubject(s.id)}
+                                className={clsx(
+                                  'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
+                                  active
+                                    ? 'bg-aura-accent/10 text-aura-accent border-aura-accent/20'
+                                    : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12] hover:text-aura-text',
+                                )}
+                              >
+                                {s.nameHe}
+                                <span className="ml-1 opacity-50 text-[10px]">{s.nameEn}</span>
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
 

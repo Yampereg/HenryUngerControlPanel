@@ -6,18 +6,17 @@ import { listR2Prefixes } from '@/lib/r2'
 // JSON body fields:
 //   r2Dir      — R2 top-level folder name (e.g. "my_course")
 //   title      — Course title
-//   subjectId  — (optional) numeric subject id
+//   subjectIds — (optional) array of numeric subject ids
 export async function POST(req: NextRequest) {
   try {
-    const body    = await req.json() as { r2Dir?: string; title?: string; subjectId?: number | null }
-    const r2Dir   = body.r2Dir?.trim()
-    const title   = body.title?.trim()
+    const body      = await req.json() as { r2Dir?: string; title?: string; subjectIds?: number[] }
+    const r2Dir     = body.r2Dir?.trim()
+    const title     = body.title?.trim()
+    const subjectIds = Array.isArray(body.subjectIds) ? body.subjectIds : []
 
     if (!r2Dir || !title) {
       return NextResponse.json({ error: 'r2Dir and title are required' }, { status: 400 })
     }
-
-    const subjectId = body.subjectId != null ? body.subjectId : null
 
     // Prevent duplicate courses for the same r2_dir
     const { data: existing } = await supabase
@@ -36,7 +35,7 @@ export async function POST(req: NextRequest) {
     // Create course row
     const { data: course, error: courseErr } = await supabase
       .from('courses')
-      .insert({ title, r2_dir: r2Dir, subject_id: subjectId ?? null })
+      .insert({ title, r2_dir: r2Dir })
       .select('id')
       .single()
 
@@ -49,6 +48,17 @@ export async function POST(req: NextRequest) {
 
     const courseId = course.id as number
 
+    // Insert junction rows for subjects
+    if (subjectIds.length > 0) {
+      const rows = subjectIds.map(sid => ({ course_id: courseId, subject_id: sid }))
+      const { error: subjErr } = await supabase.from('course_subjects').insert(rows)
+      if (subjErr) {
+        // Roll back the course row
+        await supabase.from('courses').delete().eq('id', courseId)
+        return NextResponse.json({ error: subjErr.message }, { status: 500 })
+      }
+    }
+
     // Discover lecture numbers from R2 sub-prefixes
     const subPrefixes  = await listR2Prefixes(`${r2Dir}/`)
     const lectureNums  = subPrefixes
@@ -60,7 +70,7 @@ export async function POST(req: NextRequest) {
       .sort((a, b) => a - b)
 
     if (lectureNums.length === 0) {
-      // Roll back the just-created course
+      // Roll back the just-created course (cascade deletes course_subjects)
       await supabase.from('courses').delete().eq('id', courseId)
       return NextResponse.json(
         { error: 'No numeric lecture sub-folders found under the selected R2 dir' },
