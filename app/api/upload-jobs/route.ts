@@ -105,9 +105,22 @@ export async function GET() {
   } : null
 
   // Succeeded count per course (for X/Y progress in home view)
+  // Only count jobs whose lecture actually exists in the lectures table
+  const { data: lectureRows } = await supabase
+    .from('lectures')
+    .select('course_id, order_in_course')
+    .in('course_id', courseIds)
+
+  interface LectureRow { course_id: number; order_in_course: number | null }
+  const dbLectureSet = new Set<string>(
+    ((lectureRows ?? []) as LectureRow[])
+      .filter(l => l.order_in_course != null)
+      .map(l => `${l.course_id}:${l.order_in_course}`),
+  )
+
   const succeededPerCourse: Record<number, number> = {}
   for (const r of rows) {
-    if (r.status === 'succeeded') {
+    if (r.status === 'succeeded' && dbLectureSet.has(`${r.course_id}:${r.lecture_number}`)) {
       succeededPerCourse[r.course_id] = (succeededPerCourse[r.course_id] ?? 0) + 1
     }
   }
