@@ -66,8 +66,16 @@ export async function GET(req: NextRequest) {
 
   const lectures = allNums.map(n => {
     const job = jobMap.get(n)
-    // A lecture that exists in the DB is considered succeeded even without a job row
-    const status = job ? job.status : dbNums.has(n) ? 'succeeded' : 'none'
+    let status: string
+    if (!job) {
+      // No job row — succeeded only if lecture is actually in the DB
+      status = dbNums.has(n) ? 'succeeded' : 'none'
+    } else if (job.status === 'succeeded') {
+      // Job claims success — only trust it if the lecture row is actually in the DB
+      status = dbNums.has(n) ? 'succeeded' : 'failed'
+    } else {
+      status = job.status
+    }
     return {
       lectureNumber: n,
       status,
