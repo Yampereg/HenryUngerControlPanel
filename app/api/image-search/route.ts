@@ -16,9 +16,13 @@ async function searchGoogleCSE(q: string, num: number): Promise<string[]> {
   })
 
   const res = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`)
-  if (!res.ok) return []
-
   const json = await res.json()
+
+  if (!res.ok) {
+    console.error('[image-search] Google API error:', JSON.stringify(json))
+    return []
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (json.items ?? []).map((item: any) => item.link as string)
 }
