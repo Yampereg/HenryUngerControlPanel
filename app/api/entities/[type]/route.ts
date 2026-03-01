@@ -47,7 +47,7 @@ export async function GET(
     // ── All other entity types ─────────────────────────────────────────────
     // 1. Fetch all entities from Supabase
     const extraFields = entityType === 'courses'
-      ? ', description, course_r2_url, r2_dir, subject_id'
+      ? ', description, course_r2_url, r2_dir'
       : ', hebrew_name, description'
     let query = supabase
       .from(entityType)
@@ -61,6 +61,23 @@ export async function GET(
     const { data: rows, error } = await query
 
     if (error) throw error
+
+    // 1b. For courses: attach subject_ids from junction table
+    if (entityType === 'courses' && rows && rows.length > 0) {
+      const courseIds = (rows as { id: number }[]).map(r => r.id)
+      const { data: csData } = await supabase
+        .from('course_subjects')
+        .select('course_id, subject_id')
+        .in('course_id', courseIds)
+      const subjectMap: Record<number, number[]> = {}
+      for (const cs of (csData ?? []) as { course_id: number; subject_id: number }[]) {
+        if (!subjectMap[cs.course_id]) subjectMap[cs.course_id] = []
+        subjectMap[cs.course_id].push(cs.subject_id)
+      }
+      for (const row of rows as Record<string, unknown>[]) {
+        row.subject_ids = subjectMap[row.id as number] ?? []
+      }
+    }
 
     // 2. List all image keys already in R2 for this entity type
     const prefix = `${R2_IMAGES_PREFIX}/${entityType}/`

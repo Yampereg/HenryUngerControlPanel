@@ -642,7 +642,7 @@ function InlineCourseEditor({ entity, onSaved }: { entity: EntityRow; onSaved: (
   const [values,    setValues]    = useState<Record<string, unknown>>(
     () => Object.fromEntries(FIELD_MAP.courses.map(f => [f.key, entity[f.key] ?? null]))
   )
-  const [subjectId, setSubjectId] = useState<number | null>((entity.subject_id as number | null) ?? null)
+  const [subjectIds, setSubjectIds] = useState<number[]>(Array.isArray(entity.subject_ids) ? (entity.subject_ids as number[]) : [])
   const [yearText,  setYearText]  = useState('')
   const [places,    setPlaces]    = useState<string[]>([])
   const [saving,    setSaving]    = useState(false)
@@ -655,7 +655,7 @@ function InlineCourseEditor({ entity, onSaved }: { entity: EntityRow; onSaved: (
 
   useEffect(() => {
     setValues(Object.fromEntries(FIELD_MAP.courses.map(f => [f.key, entity[f.key] ?? null])))
-    setSubjectId((entity.subject_id as number | null) ?? null)
+    setSubjectIds(Array.isArray(entity.subject_ids) ? (entity.subject_ids as number[]) : [])
     setDirty(false)
     setMetaDirty(false)
     fetch(`/api/courses/meta?courseId=${courseId}`)
@@ -679,7 +679,7 @@ function InlineCourseEditor({ entity, onSaved }: { entity: EntityRow; onSaved: (
           description:   values.description,
           course_r2_url: values.course_r2_url,
           r2_dir:        values.r2_dir,
-          subjectId:     subjectId,
+          subjectIds:    subjectIds,
         }),
       })
       if (!r1.ok) throw new Error((await r1.json()).error ?? 'Save failed')
@@ -725,24 +725,39 @@ function InlineCourseEditor({ entity, onSaved }: { entity: EntityRow; onSaved: (
         </div>
       ))}
 
-      {/* Subject */}
-      <div>
-        <label className="text-xs font-medium text-aura-text mb-1.5 block">Subject</label>
-        <div className="relative">
-          <select
-            value={String(subjectId ?? '')}
-            onChange={e => { setSubjectId(e.target.value ? Number(e.target.value) : null); setDirty(true) }}
-            disabled={saving}
-            className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40 disabled:opacity-40"
-          >
-            <option value="">— no subject —</option>
-            {subjects.map(s => (
-              <option key={s.id} value={s.id}>{s.name_en}{s.name_he ? ` / ${s.name_he}` : ''}</option>
-            ))}
-          </select>
-          <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+      {/* Subjects — multi-select toggle */}
+      {subjects.length > 0 && (
+        <div>
+          <label className="text-xs font-medium text-aura-text mb-1.5 block">
+            Subjects <span className="font-normal opacity-50">(toggle multiple)</span>
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {subjects.map(s => {
+              const active = subjectIds.includes(s.id)
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    setSubjectIds(prev => prev.includes(s.id) ? prev.filter(x => x !== s.id) : [...prev, s.id])
+                    setDirty(true)
+                  }}
+                  disabled={saving}
+                  className={clsx(
+                    'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150 disabled:opacity-40',
+                    active
+                      ? 'bg-aura-accent/10 text-aura-accent border-aura-accent/20'
+                      : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12] hover:text-aura-text',
+                  )}
+                >
+                  {s.name_he || s.name_en}
+                  <span className="ml-1 opacity-50 text-[10px]">{s.name_en}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Year(s) */}
       <div>
@@ -1195,14 +1210,15 @@ function EntityEditor() {
 export function CourseEditor() {
   const { entities, loading, refresh } = useEntities('courses')
   const { error: toastError, success } = useToast()
-  const [courseId,  setCourseId]  = useState<number | null>(null)
-  const [values,    setValues]    = useState<Record<string, unknown>>({})
-  const [dirty,     setDirty]     = useState(false)
-  const [saving,    setSaving]    = useState(false)
-  const [subjects,  setSubjects]  = useState<SubjectOption[]>([])
-  const [yearText,  setYearText]  = useState('')
-  const [placeText, setPlaceText] = useState('')
-  const [metaDirty, setMetaDirty] = useState(false)
+  const [courseId,   setCourseId]   = useState<number | null>(null)
+  const [values,     setValues]     = useState<Record<string, unknown>>({})
+  const [subjectIds, setSubjectIds] = useState<number[]>([])
+  const [dirty,      setDirty]      = useState(false)
+  const [saving,     setSaving]     = useState(false)
+  const [subjects,   setSubjects]   = useState<SubjectOption[]>([])
+  const [yearText,   setYearText]   = useState('')
+  const [placeText,  setPlaceText]  = useState('')
+  const [metaDirty,  setMetaDirty]  = useState(false)
 
   const course = courseId != null ? entities.find(c => c.id === courseId) ?? null : null
 
@@ -1218,6 +1234,7 @@ export function CourseEditor() {
   useEffect(() => {
     if (!course) return
     setValues(Object.fromEntries(FIELD_MAP.courses.map(f => [f.key, course[f.key] ?? null])))
+    setSubjectIds(Array.isArray(course.subject_ids) ? (course.subject_ids as number[]) : [])
     setDirty(false)
     setMetaDirty(false)
     fetch(`/api/courses/meta?courseId=${course.id as number}`)
@@ -1239,7 +1256,7 @@ export function CourseEditor() {
         description:   values.description,
         course_r2_url: values.course_r2_url,
         r2_dir:        values.r2_dir,
-        subjectId:     values.subject_id != null ? Number(values.subject_id) : null,
+        subjectIds:    subjectIds,
       }
       const r1 = await fetch(`/api/courses/${courseId}`, {
         method:  'PATCH',
@@ -1318,27 +1335,31 @@ export function CourseEditor() {
             </div>
           ))}
 
-          {/* Subject */}
-          <div>
-            <label className="text-xs font-medium text-aura-text mb-1.5 block">Subject</label>
-            <div className="relative">
-              <select
-                value={String(values.subject_id ?? '')}
-                onChange={e => {
-                  setValues(p => ({ ...p, subject_id: e.target.value ? Number(e.target.value) : null }))
-                  setDirty(true)
-                }}
-                disabled={saving}
-                className="w-full appearance-none bg-black/20 border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-aura-text pr-8 focus:outline-none focus:border-aura-accent/40 disabled:opacity-40"
-              >
-                <option value="">— no subject —</option>
-                {subjects.map(s => (
-                  <option key={s.id} value={s.id}>{s.name_en}{s.name_he ? ` / ${s.name_he}` : ''}</option>
-                ))}
-              </select>
-              <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+          {/* Subjects */}
+          {subjects.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-aura-text mb-1.5 block">
+                Subjects <span className="font-normal opacity-50">(toggle multiple)</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {subjects.map(s => {
+                  const active = subjectIds.includes(s.id)
+                  return (
+                    <button key={s.id} type="button"
+                      onClick={() => { setSubjectIds(prev => prev.includes(s.id) ? prev.filter(x => x !== s.id) : [...prev, s.id]); setDirty(true) }}
+                      disabled={saving}
+                      className={clsx('px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150 disabled:opacity-40',
+                        active ? 'bg-aura-accent/10 text-aura-accent border-aura-accent/20'
+                                : 'text-aura-muted border-white/[0.06] hover:border-white/[0.12] hover:text-aura-text')}
+                    >
+                      {s.name_he || s.name_en}
+                      <span className="ml-1 opacity-50 text-[10px]">{s.name_en}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Year */}
           <div>
