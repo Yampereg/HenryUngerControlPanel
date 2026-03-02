@@ -46,7 +46,7 @@ interface MergeSelection {
 // Helpers
 // ---------------------------------------------------------------------------
 function groupSig(group: DuplicateGroup): string {
-  return `${group.name.toLowerCase()}|${group.entities.map(e => e.type).sort().join(',')}`
+  return group.entities.map(e => `${e.type}:${e.id}`).sort().join('|')
 }
 
 function groupKey(section: string, group: DuplicateGroup): string {
