@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Film, GitMerge, ImageIcon, Link2, Pencil, RotateCcw, Shuffle, Sparkles } from 'lucide-react'
+import { Film, GitMerge, ImageIcon, Link2, Pencil, RotateCcw, Shuffle, Sparkles, BarChart2 } from 'lucide-react'
 import { EditPanel } from './EditPanel'
 import { MergeEntities } from './MergeEntities'
 import { EntityReclassifier } from './EntityReclassifier'
@@ -11,15 +11,16 @@ import { RelationshipManager } from './RelationshipManager'
 import { CourseUploader } from './CourseUploader'
 import { GeneratePanel } from './GeneratePanel'
 import { ImageGame } from './ImageGame'
+import { SystemDashboard } from './SystemDashboard'
 import clsx from 'clsx'
 
-type Tab = 'edit' | 'merge' | 'entities' | 'recovery' | 'links' | 'courses' | 'generate' | 'images'
+type Tab = 'stats' | 'edit' | 'merge' | 'entities' | 'recovery' | 'links' | 'courses' | 'generate' | 'images'
 
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 export function Dashboard() {
-  const [tab, setTab] = useState<Tab>('edit')
+  const [tab, setTab] = useState<Tab>('stats')
 
   return (
     <div className="min-h-screen bg-aura-base text-aura-text">
@@ -60,6 +61,7 @@ export function Dashboard() {
           {/* Row 2: tab switcher — scrollable */}
           <div className="flex p-0.5 rounded-xl bg-black/30 border border-white/[0.06] overflow-x-auto scrollbar-none">
             {([
+              { id: 'stats',    label: 'Stats',    icon: <BarChart2  size={12} /> },
               { id: 'edit',     label: 'Edit',     icon: <Pencil     size={12} /> },
               { id: 'merge',    label: 'Merge',    icon: <GitMerge   size={12} /> },
               { id: 'entities', label: 'Entities', icon: <Shuffle    size={12} /> },
@@ -88,6 +90,17 @@ export function Dashboard() {
         </motion.header>
 
         <AnimatePresence mode="wait">
+          {tab === 'stats' && (
+            <motion.div
+              key="stats"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+            >
+              <SystemDashboard />
+            </motion.div>
+          )}
           {tab === 'edit' && (
             <motion.div
               key="edit"
