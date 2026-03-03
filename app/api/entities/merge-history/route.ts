@@ -10,13 +10,13 @@ export async function GET() {
   return NextResponse.json(data ?? [])
 }
 
-// POST — upsert one history entry
+// POST — replace one history entry (delete existing, then insert)
 // body: { group_sig, action: 'approved'|'declined', keep_type?: string }
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { error } = await supabase
-    .from('merge_history')
-    .upsert({ ...body }, { onConflict: 'group_sig' })
+  // Delete any existing row for this sig first (avoids needing a unique constraint)
+  await supabase.from('merge_history').delete().eq('group_sig', body.group_sig)
+  const { error } = await supabase.from('merge_history').insert(body)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

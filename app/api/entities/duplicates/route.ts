@@ -16,14 +16,13 @@ const ALL_TYPES: EntityType[] = [
  * OR both are "person" types (can be misclassified),
  * OR both are "work" types (can be misclassified).
  *
- * Person types: directors, writers, philosophers, painters
- * Work types:   films, books, paintings
- *
- * We allow ALL cross-type comparisons — the user decides what to merge.
+ * Excluded pairs: books ↔ films (too different to ever be duplicates).
  */
+const INCOMPATIBLE_PAIRS = new Set(['books:films', 'films:books'])
+
 function canCompare(typeA: EntityType, typeB: EntityType): boolean {
   if (typeA === typeB) return true
-  // Allow all cross-type comparisons across ALL_TYPES
+  if (INCOMPATIBLE_PAIRS.has(`${typeA}:${typeB}`)) return false
   return ALL_TYPES.includes(typeA) && ALL_TYPES.includes(typeB)
 }
 

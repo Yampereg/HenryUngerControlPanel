@@ -14,8 +14,12 @@ List ONLY the FILM DIRECTORS who are EXPLICITLY and CLEARLY mentioned by name in
 
 RULES:
 1. Output names in ENGLISH only (standard Western spelling)
-2. Full names only
-3. ONLY if the director is ACTUALLY NAMED in the transcript — do not infer or guess
+2. Full names only — even if the transcript mentions only a last name or common short form,
+   output the FULL name. Examples: "Kubrick" → "Stanley Kubrick",
+   "Godard" → "Jean-Luc Godard", "Fellini" → "Federico Fellini",
+   "Bergman" → "Ingmar Bergman", "Hitchcock" → "Alfred Hitchcock",
+   "Truffaut" → "François Truffaut", "Welles" → "Orson Welles".
+3. ONLY if the director is actually referenced in the transcript (even by last name only)
 4. If a director is only implied or their films are mentioned without naming them, SKIP
 5. Director names may appear in Hebrew phonetic transliteration — recognize and output in English
 

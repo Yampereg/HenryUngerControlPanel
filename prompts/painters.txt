@@ -12,8 +12,12 @@ List all PAINTERS/VISUAL ARTISTS mentioned in this Hebrew lecture.
 - Illustrators/visual artists whose primary medium is visual art (not film)
 
 RULES:
-1. Output in ENGLISH only - full names (e.g., "Pablo Picasso", "Salvador Dalí")
-2. Full names only
+1. Output in ENGLISH only — full names always
+2. Full names only — even if the transcript uses only a last name or short form, output
+   the FULL name. Examples: "Picasso" → "Pablo Picasso", "Dalí" → "Salvador Dalí",
+   "Rembrandt" → "Rembrandt van Rijn", "Van Gogh" → "Vincent van Gogh",
+   "Matisse" → "Henri Matisse", "Cézanne" → "Paul Cézanne",
+   "Hopper" → "Edward Hopper", "Magritte" → "René Magritte".
 3. Include if they are known as a painter/visual artist — even if mentioned briefly
 4. Names may appear in Hebrew phonetic transliteration — recognize and output in English
 

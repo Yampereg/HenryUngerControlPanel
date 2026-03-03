@@ -19,12 +19,15 @@ List all PHILOSOPHERS, INTELLECTUALS, and THEORISTS mentioned in this Hebrew lec
 
 RULES:
 1. Output in ENGLISH only (standard Western spelling)
-2. Full names only
-3. ONLY if the person is explicitly named in the transcript
+2. Full names only — even if the transcript uses only a last name or short form, output the
+   FULL name. Examples: "Kant" → "Immanuel Kant", "Descartes" → "René Descartes",
+   "Hegel" → "Georg Wilhelm Friedrich Hegel", "Nietzsche" → "Friedrich Nietzsche",
+   "Foucault" → "Michel Foucault", "Derrida" → "Jacques Derrida", "Lacan" → "Jacques Lacan".
+3. ONLY if the person is actually referenced in the transcript (even by last name only)
 4. Skip if unsure — when in doubt between philosopher and writer/poet, put them in writers
 5. ⛔ STRICT RULE — Only include people whose PRIMARY public identity is as a philosopher, theorist, or intellectual.
-   If someone is mainly known as a novelist, playwright, or poet — even if they also wrote philosophical essays or had philosophical ideas — do NOT include them here. Put them in writers.
-   Examples of people who belong in WRITERS, not here: Albert Camus, Jean-Paul Sartre (primarily novelist/playwright), Franz Kafka, Samuel Beckett, Simone de Beauvoir (if discussed as a novelist), etc.
+   If someone is mainly known as a novelist, playwright, or poet — even if they also wrote philosophical essays or had philosophical ideas — do NOT include them.
+   Examples of people who belong in WRITERS, not here: Albert Camus, Jean-Paul Sartre (primarily novelist/playwright), Franz Kafka, Samuel Beckett.
    When uncertain, default to writers — only philosophers known first and foremost as thinkers belong in this list.
 
 Separate into:
