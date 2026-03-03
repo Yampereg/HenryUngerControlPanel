@@ -45,13 +45,9 @@ interface MergeSelection {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-// Signature used for history persistence — name+type based so it survives entity
-// re-creation (new IDs) and case variations ("Coen Brothers" vs "Coen brothers").
+// Stable ID-based signature for history persistence.
 function groupSig(group: DuplicateGroup): string {
-  return group.entities
-    .map(e => `${e.type}:${e.displayName.trim().toLowerCase()}`)
-    .sort()
-    .join('|')
+  return group.entities.map(e => `${e.type}:${e.id}`).sort().join('|')
 }
 
 function groupKey(section: string, group: DuplicateGroup): string {

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   BookOpen, ChevronDown, FileText, Layers, Loader2,
-  RefreshCw, Sparkles, Tag, Users, X, Check, Plus, Minus,
+  RefreshCw, Sparkles, Tag, Users, X, Check, Plus, Minus, AlertTriangle,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useToast } from './ToastProvider'
@@ -206,6 +206,10 @@ export function GeneratePanel() {
 
   const [note,    setNote]    = useState('')
 
+  // ── re-transcribe state ───────────────────────────────────────────────────
+  const [reTransConfirm,   setReTransConfirm]   = useState(false)
+  const [reTransRunning,   setReTransRunning]   = useState(false)
+
   // ── result state ─────────────────────────────────────────────────────────
   const [phase,            setPhase]            = useState<Phase>('idle')
   const [result,           setResult]           = useState<Record<string, unknown> | null>(null)
@@ -342,6 +346,28 @@ export function GeneratePanel() {
     } catch (err) {
       showError('Failed to save', err instanceof Error ? err.message : String(err))
       setPhase('preview')
+    }
+  }
+
+  // ── re-transcribe ─────────────────────────────────────────────────────────
+  async function handleReTranscribe() {
+    if (!lectureId) return
+    setReTransRunning(true)
+    try {
+      const res  = await fetch('/api/generate/retranscribe', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ lectureId: Number(lectureId) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Re-transcribe failed')
+      success('Queued', `Lecture re-queued for transcription (lecture ${data.lecture_number}).`)
+      setReTransConfirm(false)
+      setLectureId('')
+    } catch (err) {
+      showError('Re-transcribe failed', err instanceof Error ? err.message : String(err))
+    } finally {
+      setReTransRunning(false)
     }
   }
 
@@ -642,6 +668,82 @@ export function GeneratePanel() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Re-transcribe — destructive action */}
+      <div className="rounded-2xl border border-aura-error/20 bg-aura-error/[0.02] overflow-hidden">
+        <div className="px-4 py-3.5 flex items-center gap-3">
+          <div className="w-6 h-6 rounded-lg bg-aura-error/10 border border-aura-error/20 flex items-center justify-center shrink-0">
+            <RefreshCw size={12} className="text-aura-error" />
+          </div>
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-aura-text">Re-transcribe Lecture</p>
+            <p className="text-[10px] text-aura-muted mt-0.5">
+              Delete all DB data for a lecture and re-queue it for fresh transcription.
+            </p>
+          </div>
+        </div>
+
+        <div className="px-4 pb-4 space-y-3 border-t border-aura-error/[0.12]">
+          <div className="pt-3 space-y-2">
+            {/* Course picker */}
+            <Select value={courseId} onChange={v => { setCourseId(v); setLectureId(''); setReTransConfirm(false) }} placeholder="Select course…">
+              {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+            </Select>
+            {/* Lecture picker */}
+            <Select value={lectureId} onChange={v => { setLectureId(v); setReTransConfirm(false) }} placeholder="Select lecture…" disabled={!courseId}>
+              {lectures.map(l => (
+                <option key={l.id} value={l.id}>Lecture {l.order_in_course} — {l.title}</option>
+              ))}
+            </Select>
+          </div>
+
+          {!reTransConfirm ? (
+            <button
+              onClick={() => setReTransConfirm(true)}
+              disabled={!lectureId}
+              className={clsx(
+                'w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all',
+                lectureId
+                  ? 'bg-aura-error/10 border border-aura-error/30 text-aura-error hover:bg-aura-error/15'
+                  : 'bg-white/[0.02] border border-white/[0.05] text-aura-muted/40 cursor-not-allowed',
+              )}
+            >
+              <RefreshCw size={11} /> Re-transcribe
+            </button>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-xl bg-aura-error/[0.06] border border-aura-error/25 p-3 space-y-2.5"
+            >
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={13} className="text-aura-error shrink-0 mt-0.5" />
+                <p className="text-[11px] text-aura-error/90 leading-relaxed">
+                  This will permanently delete all DB data for this lecture (including junctions),
+                  remove its R2 output files, and re-queue it for transcription. The source video is kept.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setReTransConfirm(false)}
+                  className="flex-1 py-1.5 rounded-lg text-xs text-aura-muted border border-white/[0.07] hover:bg-white/[0.04] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReTranscribe}
+                  disabled={reTransRunning}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold bg-aura-error text-white hover:bg-aura-error/90 transition-colors disabled:opacity-40"
+                >
+                  {reTransRunning
+                    ? <><Loader2 size={11} className="animate-spin" /> Working…</>
+                    : <><Check size={11} /> Confirm &amp; Re-queue</>}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
