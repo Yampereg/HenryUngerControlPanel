@@ -6,11 +6,14 @@ import {
   GitMerge, Loader2, RefreshCw, CheckCircle2,
   ArrowRight, ImageIcon, Link2, X, RotateCcw,
   Plus, Search, ChevronDown, Trash2, Shield,
-  AlertTriangle,
+  AlertTriangle, Languages,
 } from 'lucide-react'
 import { EntityType, ENTITY_TYPES, JUNCTION_MAP } from '@/lib/constants'
 import { useToast } from './ToastProvider'
 import clsx from 'clsx'
+
+// Hebrew Unicode range detector
+const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s)
 
 // ---------------------------------------------------------------------------
 // Types
@@ -720,11 +723,394 @@ function EntityPicker({
 }
 
 // ---------------------------------------------------------------------------
+// HebrewMergeTab — merge Hebrew-named entities into English equivalents
+// ---------------------------------------------------------------------------
+interface HebrewEntity {
+  id:          number
+  displayName: string
+  type:        EntityType
+}
+
+function HebrewSearchDropdown({
+  label,
+  labelColor,
+  borderColor,
+  bgColor,
+  placeholder,
+  entities,
+  selected,
+  onSelect,
+  emptyText,
+}: {
+  label:       string
+  labelColor:  string
+  borderColor: string
+  bgColor:     string
+  placeholder: string
+  entities:    HebrewEntity[]
+  selected:    HebrewEntity | null
+  onSelect:    (e: HebrewEntity | null) => void
+  emptyText:   string
+}) {
+  const [query, setQuery] = useState('')
+  const [open,  setOpen]  = useState(false)
+
+  const filtered = entities.filter(e =>
+    e.displayName.toLowerCase().includes(query.toLowerCase())
+  )
+
+  function pick(e: HebrewEntity) {
+    onSelect(e)
+    setQuery(e.displayName)
+    setOpen(false)
+  }
+
+  function clear() {
+    onSelect(null)
+    setQuery('')
+    setOpen(false)
+  }
+
+  return (
+    <div className={clsx('rounded-2xl border p-3 space-y-2.5', borderColor, bgColor)}>
+      <p className={clsx('text-[10px] font-black uppercase tracking-widest', labelColor)}>{label}</p>
+
+      {/* Search input */}
+      <div className="relative">
+        <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-aura-muted pointer-events-none" />
+        <input
+          value={selected ? selected.displayName : query}
+          onChange={e => { setQuery(e.target.value); onSelect(null); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          dir={label === 'DELETE (Hebrew)' ? 'rtl' : 'ltr'}
+          className={clsx(
+            'w-full pl-8 pr-8 py-2.5 rounded-xl bg-black/30 border border-white/[0.08]',
+            'text-sm text-aura-text placeholder-aura-muted/40',
+            'focus:outline-none focus:border-aura-accent/40 transition-colors',
+          )}
+        />
+        {(selected || query) && (
+          <button
+            onClick={clear}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-aura-muted/50 hover:text-aura-muted transition-colors"
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
+
+      {/* Selected chip */}
+      {selected && (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={clsx(
+            'flex items-center justify-between px-3 py-2.5 rounded-xl',
+            'bg-black/20 border border-white/[0.12]',
+          )}
+        >
+          <div className="min-w-0 flex-1">
+            <p
+              dir={label === 'DELETE (Hebrew)' ? 'rtl' : 'ltr'}
+              className={clsx('text-sm font-semibold truncate', labelColor)}
+            >
+              {selected.displayName}
+            </p>
+            <p className="text-[10px] text-aura-muted mt-0.5">
+              {ENTITY_TYPES[selected.type].icon} {ENTITY_TYPES[selected.type].label.replace(/s$/, '')} · #{selected.id}
+            </p>
+          </div>
+          <button onClick={clear} className="text-aura-muted/40 hover:text-aura-muted ml-2 shrink-0 transition-colors">
+            <X size={11} />
+          </button>
+        </motion.div>
+      )}
+
+      {/* Dropdown results */}
+      <AnimatePresence>
+        {open && !selected && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="rounded-xl border border-white/[0.08] overflow-hidden bg-black/40 backdrop-blur-sm max-h-52 overflow-y-auto"
+          >
+            {filtered.length === 0 ? (
+              <p className="px-3 py-4 text-xs text-aura-muted/60 text-center">{emptyText}</p>
+            ) : (
+              filtered.map((e, i) => (
+                <button
+                  key={`${e.type}:${e.id}`}
+                  onClick={() => pick(e)}
+                  className={clsx(
+                    'w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors',
+                    'hover:bg-white/[0.06] active:bg-white/[0.09]',
+                    i < filtered.length - 1 && 'border-b border-white/[0.04]',
+                  )}
+                >
+                  <span
+                    dir={label === 'DELETE (Hebrew)' ? 'rtl' : 'ltr'}
+                    className="text-sm text-aura-text font-medium truncate flex-1"
+                  >
+                    {e.displayName}
+                  </span>
+                  <span className="text-[10px] text-aura-muted/50 shrink-0 ml-2">
+                    {ENTITY_TYPES[e.type].icon} #{e.id}
+                  </span>
+                </button>
+              ))
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Count badge */}
+      {!selected && !open && entities.length > 0 && (
+        <p className="text-[10px] text-aura-muted/50 text-center">
+          {entities.length} entit{entities.length !== 1 ? 'ies' : 'y'} available
+        </p>
+      )}
+    </div>
+  )
+}
+
+function HebrewMergeTab() {
+  const { success, error: toastError } = useToast()
+
+  const [category,      setCategory]      = useState<EntityType>('directors')
+  const [hebrewList,    setHebrewList]    = useState<HebrewEntity[]>([])
+  const [englishList,   setEnglishList]   = useState<HebrewEntity[]>([])
+  const [loadingCat,    setLoadingCat]    = useState(false)
+  const [deleteEntity,  setDeleteEntity]  = useState<HebrewEntity | null>(null)
+  const [keepEntity,    setKeepEntity]    = useState<HebrewEntity | null>(null)
+  const [merging,       setMerging]       = useState(false)
+
+  const loadCategory = useCallback(async (type: EntityType) => {
+    setLoadingCat(true)
+    setDeleteEntity(null)
+    setKeepEntity(null)
+    setHebrewList([])
+    setEnglishList([])
+    try {
+      const res  = await fetch(`/api/entities/${type}?all=true`)
+      const data = await res.json()
+      const all: HebrewEntity[] = (data.entities ?? []).map((e: { id: number; displayName: string }) => ({
+        id: e.id, displayName: e.displayName, type,
+      }))
+      setHebrewList(all.filter(e => isHebrew(e.displayName)))
+      setEnglishList(all.filter(e => !isHebrew(e.displayName)))
+    } catch {
+      toastError('Load failed', 'Could not load entities for this category.')
+    } finally {
+      setLoadingCat(false)
+    }
+  }, [toastError])
+
+  useEffect(() => { loadCategory(category) }, [category, loadCategory])
+
+  async function handleMerge() {
+    if (!keepEntity || !deleteEntity) return
+    setMerging(true)
+    try {
+      const res = await fetch('/api/entities/merge', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keepId:     keepEntity.id,
+          keepType:   keepEntity.type,
+          deleteId:   deleteEntity.id,
+          deleteType: deleteEntity.type,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error ?? 'Merge failed')
+      }
+
+      success('Merged!', `"${deleteEntity.displayName}" → "${keepEntity.displayName}"`)
+      // Remove the deleted entity from the Hebrew list
+      setHebrewList(prev => prev.filter(e => e.id !== deleteEntity.id))
+      setDeleteEntity(null)
+      setKeepEntity(null)
+    } catch (e) {
+      toastError('Merge failed', e instanceof Error ? e.message : String(e))
+    } finally {
+      setMerging(false)
+    }
+  }
+
+  const ready = !!(keepEntity && deleteEntity)
+
+  return (
+    <div className="space-y-4">
+
+      {/* Explainer */}
+      <div className="flex items-start gap-3 px-4 py-3 rounded-2xl bg-aura-indigo/[0.05] border border-aura-indigo/15">
+        <Languages size={15} className="text-aura-indigo shrink-0 mt-0.5" />
+        <div>
+          <p className="text-xs font-semibold text-aura-text mb-0.5">Hebrew → English Merge</p>
+          <p className="text-[11px] text-aura-muted leading-relaxed">
+            Pick a category, select a Hebrew entity to <span className="text-aura-error font-semibold">delete</span> and
+            an English equivalent to <span className="text-aura-success font-semibold">keep</span>. All lecture links
+            will transfer automatically.
+          </p>
+        </div>
+      </div>
+
+      {/* Category selector */}
+      <div className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-aura-muted px-1">Category</p>
+        <div className="flex flex-wrap gap-2">
+          {MERGEABLE_TYPES.map(t => (
+            <button
+              key={t}
+              onClick={() => setCategory(t)}
+              className={clsx(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-200',
+                category === t
+                  ? 'bg-aura-indigo/15 border-aura-indigo/40 text-aura-indigo shadow-[0_0_10px_rgba(129,140,248,0.15)]'
+                  : 'bg-white/[0.02] border-white/[0.07] text-aura-muted hover:border-white/[0.15] hover:text-aura-text',
+              )}
+            >
+              <span>{ENTITY_TYPES[t].icon}</span>
+              {ENTITY_TYPES[t].label}
+              {category === t && !loadingCat && (
+                <span className="text-[10px] bg-aura-error/20 text-aura-error rounded-full px-1.5 py-0.5 font-bold ml-1">
+                  {hebrewList.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Loading state */}
+      {loadingCat && (
+        <div className="flex items-center justify-center gap-2 py-8">
+          <Loader2 size={16} className="animate-spin text-aura-indigo" />
+          <span className="text-xs text-aura-muted">Loading {ENTITY_TYPES[category].label}…</span>
+        </div>
+      )}
+
+      {/* No Hebrew entities */}
+      {!loadingCat && hebrewList.length === 0 && (
+        <div className="flex flex-col items-center gap-3 py-10 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-aura-success/10 border border-aura-success/20 flex items-center justify-center">
+            <CheckCircle2 size={22} className="text-aura-success" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-aura-text">No Hebrew entities!</p>
+            <p className="text-xs text-aura-muted mt-1">
+              All {ENTITY_TYPES[category].label.toLowerCase()} have English/numerical names.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Pickers */}
+      {!loadingCat && hebrewList.length > 0 && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3">
+            {/* DELETE — Hebrew */}
+            <HebrewSearchDropdown
+              label="DELETE (Hebrew)"
+              labelColor="text-aura-error"
+              borderColor="border-aura-error/20"
+              bgColor="bg-aura-error/[0.03]"
+              placeholder="Search Hebrew entities…"
+              entities={hebrewList}
+              selected={deleteEntity}
+              onSelect={setDeleteEntity}
+              emptyText="No Hebrew entities match your search"
+            />
+
+            {/* Arrow connector */}
+            <div className="flex items-center justify-center gap-3">
+              <div className="flex-1 h-px bg-gradient-to-r from-transparent via-aura-muted/20 to-transparent" />
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-aura-indigo/10 border border-aura-indigo/20">
+                <ArrowRight size={11} className="text-aura-indigo" />
+                <span className="text-[10px] font-bold text-aura-indigo uppercase tracking-wider">merge into</span>
+              </div>
+              <div className="flex-1 h-px bg-gradient-to-r from-transparent via-aura-muted/20 to-transparent" />
+            </div>
+
+            {/* KEEP — English */}
+            <HebrewSearchDropdown
+              label="KEEP (English)"
+              labelColor="text-aura-success"
+              borderColor="border-aura-success/20"
+              bgColor="bg-aura-success/[0.03]"
+              placeholder="Search English entities…"
+              entities={englishList}
+              selected={keepEntity}
+              onSelect={setKeepEntity}
+              emptyText="No English entities match your search"
+            />
+          </div>
+
+          {/* Preview */}
+          <AnimatePresence>
+            {ready && keepEntity && deleteEntity && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                className="rounded-2xl border border-aura-indigo/20 bg-aura-indigo/[0.05] p-3.5 space-y-2"
+              >
+                <p className="text-[10px] font-bold uppercase tracking-widest text-aura-indigo text-center">Preview</p>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0 text-center">
+                    <p className="text-[9px] text-aura-error font-bold uppercase tracking-wider mb-1">Delete</p>
+                    <p dir="rtl" className="text-sm font-semibold text-aura-error/80 line-through truncate">
+                      {deleteEntity.displayName}
+                    </p>
+                  </div>
+                  <div className="shrink-0 flex flex-col items-center gap-0.5">
+                    <GitMerge size={14} className="text-aura-indigo" />
+                    <ArrowRight size={9} className="text-aura-indigo/50" />
+                  </div>
+                  <div className="flex-1 min-w-0 text-center">
+                    <p className="text-[9px] text-aura-success font-bold uppercase tracking-wider mb-1">Keep</p>
+                    <p className="text-sm font-semibold text-aura-success truncate">
+                      {keepEntity.displayName}
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Merge button */}
+          <button
+            onClick={handleMerge}
+            disabled={!ready || merging}
+            className={clsx(
+              'w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold',
+              'bg-gradient-to-r from-aura-indigo to-aura-accent text-white',
+              'shadow-[0_0_20px_rgba(129,140,248,0.2)] hover:opacity-90 transition-all duration-200',
+              'disabled:opacity-30 disabled:cursor-not-allowed',
+            )}
+          >
+            {merging
+              ? <><Loader2 size={14} className="animate-spin" /> Merging…</>
+              : <><GitMerge size={14} /> Merge &amp; Delete Hebrew</>
+            }
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main MergeEntities
 // ---------------------------------------------------------------------------
 export function MergeEntities() {
   const { success, error: toastError } = useToast()
 
+  const [innerTab,    setInnerTab]    = useState<'regular' | 'hebrew'>('regular')
   const [exact,       setExact]       = useState<DuplicateGroup[]>([])
   const [similar,     setSimilar]     = useState<DuplicateGroup[]>([])
   const [loading,     setLoading]     = useState(false)
@@ -868,6 +1254,34 @@ export function MergeEntities() {
   return (
     <div className="space-y-4">
 
+      {/* Inner tab switcher */}
+      <div className="flex gap-1.5 p-1 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+        {([
+          { id: 'regular', label: 'Regular',   icon: <GitMerge  size={11} /> },
+          { id: 'hebrew',  label: 'Hebrew',     icon: <Languages size={11} /> },
+        ] as const).map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setInnerTab(tab.id)}
+            className={clsx(
+              'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all duration-200',
+              innerTab === tab.id
+                ? 'bg-aura-indigo/15 border border-aura-indigo/30 text-aura-indigo shadow-[0_0_12px_rgba(129,140,248,0.12)]'
+                : 'text-aura-muted hover:text-aura-text border border-transparent',
+            )}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Hebrew tab */}
+      {innerTab === 'hebrew' && <HebrewMergeTab />}
+
+      {/* Regular tab content */}
+      {innerTab === 'regular' && <>
+
       {/* Header */}
       <div className="glass rounded-2xl p-4 border border-white/[0.07]">
         <div className="flex items-start justify-between gap-3">
@@ -1001,6 +1415,8 @@ export function MergeEntities() {
           )}
         </div>
       )}
+
+      </> /* end regular tab */}
     </div>
   )
 }
