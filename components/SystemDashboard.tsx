@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Activity, AlertTriangle, CheckCircle2, Clock, Database,
+  Activity, AlertTriangle, Database,
   GitBranch, Globe, HardDrive, Loader2, RefreshCw,
-  Server, XCircle, Zap, Boxes,
+  Server, XCircle, Zap, X,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -85,11 +85,7 @@ function fmtAgo(ts: number | string): string {
   return `${Math.floor(h / 24)}d ago`
 }
 
-function shortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Shared sub-components ─────────────────────────────────────────────────────
 
 function StatusDot({ ok, loading }: { ok: boolean | null; loading?: boolean }) {
   if (loading) return <Loader2 size={12} className="text-aura-muted animate-spin" />
@@ -104,69 +100,24 @@ function StatusDot({ ok, loading }: { ok: boolean | null; loading?: boolean }) {
   )
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-aura-muted mb-2 px-0.5">
-      {children}
-    </p>
-  )
-}
-
 function Card({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={clsx(
-      'glass rounded-xl border border-white/[0.07] p-3',
-      className,
-    )}>
+    <div className={clsx('glass rounded-xl border border-white/[0.07] p-3', className)}>
       {children}
     </div>
   )
 }
 
-// ── Service Health Card ───────────────────────────────────────────────────────
-
-interface HealthCardProps {
-  icon: React.ReactNode
-  label: string
-  ok: boolean | null
-  detail: string
-  sub?: string
-  loading?: boolean
-}
-function HealthCard({ icon, label, ok, detail, sub, loading }: HealthCardProps) {
-  return (
-    <Card className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-aura-muted">
-          {icon}
-          <span className="text-[11px] font-medium">{label}</span>
-        </div>
-        <StatusDot ok={ok} loading={loading} />
-      </div>
-      <div>
-        <p className={clsx(
-          'text-sm font-semibold leading-tight',
-          ok === true  ? 'text-aura-text'  :
-          ok === false ? 'text-aura-error'  : 'text-aura-muted',
-        )}>
-          {detail}
-        </p>
-        {sub && <p className="text-[10px] text-aura-muted mt-0.5">{sub}</p>}
-      </div>
-    </Card>
-  )
-}
-
-// ── Deployment Card ───────────────────────────────────────────────────────────
+// ── Deploy helpers ────────────────────────────────────────────────────────────
 
 type DeployState = 'ok' | 'error' | 'building' | 'unknown' | 'unconfigured'
 
 function deployState(state?: string): DeployState {
   if (!state) return 'unknown'
   const s = state.toLowerCase()
-  if (['ready', 'success', 'active', 'deployed'].some(k => s.includes(k)))   return 'ok'
-  if (['error', 'fail', 'crash'].some(k => s.includes(k)))                    return 'error'
-  if (['build', 'deploy', 'progress', 'queue', 'initializ'].some(k => s.includes(k))) return 'building'
+  if (['ready', 'success', 'active', 'deployed'].some(k => s.includes(k)))              return 'ok'
+  if (['error', 'fail', 'crash'].some(k => s.includes(k)))                              return 'error'
+  if (['build', 'deploy', 'progress', 'queue', 'initializ'].some(k => s.includes(k)))  return 'building'
   return 'unknown'
 }
 
@@ -174,53 +125,20 @@ function DeployBadge({ state }: { state: DeployState }) {
   return (
     <span className={clsx(
       'text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
-      state === 'ok'       && 'bg-aura-success/10 text-aura-success',
-      state === 'error'    && 'bg-aura-error/10 text-aura-error',
-      state === 'building' && 'bg-aura-warning/10 text-aura-warning animate-pulse',
-      state === 'unknown'  && 'bg-white/5 text-aura-muted',
+      state === 'ok'           && 'bg-aura-success/10 text-aura-success',
+      state === 'error'        && 'bg-aura-error/10 text-aura-error',
+      state === 'building'     && 'bg-aura-warning/10 text-aura-warning animate-pulse',
+      (state === 'unknown' ||
+       state === 'unconfigured') && 'bg-white/5 text-aura-muted',
     )}>
-      {state === 'ok' ? '✓ Live' : state === 'error' ? '✕ Error' : state === 'building' ? '⏳ Building' : '— Unknown'}
+      {state === 'ok'       ? '✓ Live'     :
+       state === 'error'    ? '✕ Error'    :
+       state === 'building' ? '⏳ Building' : '— Unknown'}
     </span>
   )
 }
 
-function DeployCard({
-  icon, platform, state, label, ago, url, error,
-}: {
-  icon: React.ReactNode
-  platform: string
-  state: DeployState
-  label?: string
-  ago?: string
-  url?: string
-  error?: string
-}) {
-  return (
-    <Card>
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex items-center gap-2 text-aura-muted">
-          {icon}
-          <span className="text-[11px] font-medium">{platform}</span>
-        </div>
-        <DeployBadge state={state} />
-      </div>
-      {label && <p className="text-xs text-aura-text font-medium truncate mb-0.5">{label}</p>}
-      {ago   && <p className="text-[10px] text-aura-muted">{ago}</p>}
-      {error && <p className="text-[10px] text-aura-error mt-1 truncate">{error}</p>}
-      {url && state === 'ok' && (
-        <a
-          href={url.startsWith('http') ? url : `https://${url}`}
-          target="_blank" rel="noreferrer"
-          className="text-[10px] text-aura-accent/70 hover:text-aura-accent truncate block mt-1 transition-colors"
-        >
-          {url.replace(/^https?:\/\//, '')}
-        </a>
-      )}
-    </Card>
-  )
-}
-
-// ── Bar Chart ─────────────────────────────────────────────────────────────────
+// ── Traffic bar chart ─────────────────────────────────────────────────────────
 
 function BarChart({ values, color = 'aura-accent' }: { values: number[]; color?: string }) {
   const max = Math.max(...values, 1)
@@ -245,8 +163,8 @@ function BarChart({ values, color = 'aura-accent' }: { values: number[]; color?:
 function TrafficChart({ traffic }: {
   traffic: { dates: string[]; requests: number[]; pageViews: number[]; bandwidth: number[]; uniques: number[] }
 }) {
-  const totalReqs = traffic.requests.reduce((a, b) => a + b, 0)
-  const totalBw   = traffic.bandwidth.reduce((a, b) => a + b, 0)
+  const totalReqs  = traffic.requests.reduce((a, b) => a + b, 0)
+  const totalBw    = traffic.bandwidth.reduce((a, b) => a + b, 0)
   const totalUniqs = traffic.uniques.reduce((a, b) => a + b, 0)
 
   return (
@@ -254,7 +172,7 @@ function TrafficChart({ traffic }: {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5 text-aura-muted">
           <Activity size={13} />
-          <span className="text-[11px] font-medium">Cloudflare Traffic · 7d</span>
+          <span className="text-[11px] font-medium">Traffic · 7d</span>
         </div>
         <div className="flex gap-3">
           <div className="text-right">
@@ -271,7 +189,6 @@ function TrafficChart({ traffic }: {
           </div>
         </div>
       </div>
-
       <div className="space-y-3">
         <div>
           <p className="text-[9px] text-aura-muted mb-1">Requests</p>
@@ -286,8 +203,6 @@ function TrafficChart({ traffic }: {
           <BarChart values={traffic.bandwidth} color="aura-success" />
         </div>
       </div>
-
-      {/* Date labels */}
       <div className="flex mt-1.5">
         {traffic.dates.map((d, i) => (
           <div key={i} className="flex-1 text-center text-[9px] text-aura-muted/60">
@@ -299,7 +214,184 @@ function TrafficChart({ traffic }: {
   )
 }
 
-// ── Entity Counts ─────────────────────────────────────────────────────────────
+// ── Architecture diagram data ─────────────────────────────────────────────────
+
+type NodeId = 'vercel' | 'cloudflare' | 'railway' | 'supabase' | 'r2' | 'neo4j'
+
+interface NodeMeta {
+  label: string
+  sub:   string
+  icon:  React.ElementType
+  cx:    number   // center-x in SVG viewBox 0–100
+  cy:    number   // center-y in SVG viewBox 0–100
+}
+
+const NODE_META: Record<NodeId, NodeMeta> = {
+  vercel:     { label: 'Vercel',     sub: 'Control Panel',  icon: Globe,      cx: 22, cy: 13 },
+  cloudflare: { label: 'Cloudflare', sub: 'Website',        icon: Globe,      cx: 78, cy: 13 },
+  railway:    { label: 'Railway',    sub: 'Backend API',    icon: Server,     cx: 50, cy: 48 },
+  supabase:   { label: 'Supabase',  sub: 'PostgreSQL',      icon: Database,   cx: 16, cy: 83 },
+  r2:         { label: 'R2',        sub: 'Object Storage',  icon: HardDrive,  cx: 50, cy: 83 },
+  neo4j:      { label: 'Neo4j',     sub: 'Graph DB',        icon: GitBranch,  cx: 84, cy: 83 },
+}
+
+interface EdgeDef {
+  a: NodeId; b: NodeId
+  label: string
+  stroke: string
+  labelFill: string
+}
+
+const EDGES: EdgeDef[] = [
+  { a: 'vercel',     b: 'supabase', label: 'SQL',  stroke: 'rgba(34,211,238,0.30)', labelFill: 'rgba(34,211,238,0.55)' },
+  { a: 'vercel',     b: 'r2',       label: 'S3',   stroke: 'rgba(99,102,241,0.30)', labelFill: 'rgba(99,102,241,0.55)' },
+  { a: 'cloudflare', b: 'railway',  label: 'HTTP', stroke: 'rgba(52,211,153,0.30)', labelFill: 'rgba(52,211,153,0.55)' },
+  { a: 'railway',    b: 'supabase', label: 'JDBC', stroke: 'rgba(34,211,238,0.30)', labelFill: 'rgba(34,211,238,0.55)' },
+  { a: 'railway',    b: 'r2',       label: 'S3',   stroke: 'rgba(99,102,241,0.30)', labelFill: 'rgba(99,102,241,0.55)' },
+  { a: 'railway',    b: 'neo4j',    label: 'Bolt', stroke: 'rgba(251,191,36,0.30)', labelFill: 'rgba(251,191,36,0.55)' },
+]
+
+function getNodeStatus(id: NodeId, s: Stats): boolean | null {
+  switch (id) {
+    case 'vercel':
+      return s.vercel.configured ? deployState(s.vercel.state) === 'ok' : null
+    case 'cloudflare':
+      return s.cloudflare.configured && s.cloudflare.pages
+        ? deployState(s.cloudflare.pages.state) === 'ok' : null
+    case 'railway': {
+      if (!s.railway.configured) return null
+      const states = s.railway.deployments?.map(d => deployState(d.status)) ?? []
+      return states.length ? states.every(st => st === 'ok') : null
+    }
+    case 'supabase':   return s.supabase.ok
+    case 'r2':         return s.r2.ok
+    case 'neo4j':      return s.neo4j.configured ? (s.neo4j.ok ?? false) : null
+  }
+}
+
+// ── Architecture diagram ──────────────────────────────────────────────────────
+
+function ArchDiagram({ stats, onNodeClick }: { stats: Stats; onNodeClick: (id: NodeId) => void }) {
+  return (
+    <div className="relative w-full select-none" style={{ height: 310 }}>
+
+      {/* SVG connection lines — uses same percentage coordinates as node divs */}
+      <svg
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        className="absolute inset-0 w-full h-full pointer-events-none"
+        style={{ overflow: 'visible' }}
+      >
+        <defs>
+          {/* Animated dash offset to make lines "flow" */}
+          <style>{`
+            .flow-dash {
+              stroke-dasharray: 2.5 2;
+              animation: flowDash 1.8s linear infinite;
+            }
+            @keyframes flowDash {
+              to { stroke-dashoffset: -4.5; }
+            }
+          `}</style>
+        </defs>
+
+        {EDGES.map(edge => {
+          const a  = NODE_META[edge.a]
+          const b  = NODE_META[edge.b]
+          const mx = (a.cx + b.cx) / 2
+          const my = (a.cy + b.cy) / 2
+          // Midpoint offset: push label slightly off-center to avoid overlaps
+          const dx = b.cx - a.cx
+          const dy = b.cy - a.cy
+          const len = Math.sqrt(dx * dx + dy * dy)
+          const nx = -dy / len   // perpendicular
+          const ny =  dx / len
+          const lx = mx + nx * 3.5
+          const ly = my + ny * 3.5
+
+          return (
+            <g key={`${edge.a}-${edge.b}`}>
+              {/* Glow shadow line */}
+              <line
+                x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy}
+                stroke={edge.stroke}
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                opacity="0.5"
+                filter="blur(1px)"
+              />
+              {/* Animated dashed line */}
+              <line
+                x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy}
+                stroke={edge.stroke}
+                strokeWidth="0.6"
+                strokeLinecap="round"
+                className="flow-dash"
+              />
+              {/* Edge label */}
+              <text
+                x={lx} y={ly}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize="2.6"
+                fontFamily="ui-monospace, monospace"
+                fontWeight="600"
+                fill={edge.labelFill}
+              >
+                {edge.label}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+
+      {/* Node boxes — absolutely positioned, centered on (cx%, cy%) */}
+      {(Object.entries(NODE_META) as [NodeId, NodeMeta][]).map(([id, meta]) => {
+        const status = getNodeStatus(id, stats)
+        const Icon   = meta.icon
+        return (
+          <button
+            key={id}
+            onClick={() => onNodeClick(id)}
+            style={{ left: `${meta.cx}%`, top: `${meta.cy}%` }}
+            className={clsx(
+              'absolute -translate-x-1/2 -translate-y-1/2 z-10',
+              'w-[70px] glass rounded-xl border p-2.5 flex flex-col items-center gap-1.5',
+              'hover:scale-110 active:scale-95 transition-all duration-200 cursor-pointer',
+              status === true  && 'border-aura-success/40 shadow-[0_0_12px_rgba(52,211,153,0.15)]',
+              status === false && 'border-aura-error/40 shadow-[0_0_12px_rgba(239,68,68,0.15)]',
+              status === null  && 'border-white/[0.10] hover:border-aura-accent/35',
+            )}
+          >
+            <div className="relative">
+              <Icon
+                size={18}
+                className={clsx(
+                  status === true  ? 'text-aura-success' :
+                  status === false ? 'text-aura-error'   : 'text-aura-muted',
+                )}
+              />
+              {/* Status dot in corner */}
+              <span className={clsx(
+                'absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full border border-black/30',
+                status === true  ? 'bg-aura-success' :
+                status === false ? 'bg-aura-error'   : 'bg-white/20',
+              )} />
+            </div>
+            <p className="text-[9.5px] font-bold text-aura-text leading-none tracking-wide">
+              {meta.label}
+            </p>
+            <p className="text-[8px] text-aura-muted leading-none text-center">
+              {meta.sub}
+            </p>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Modal content per node ────────────────────────────────────────────────────
 
 const ENTITY_LABELS: Record<string, string> = {
   courses: 'Courses', lectures: 'Lectures',
@@ -308,35 +400,275 @@ const ENTITY_LABELS: Record<string, string> = {
   philosophers: 'Philosophers', themes: 'Themes',
 }
 
-function EntityCounts({ counts }: { counts: Record<string, number> }) {
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <Card>
-      <div className="flex items-center gap-1.5 text-aura-muted mb-3">
-        <Database size={13} />
-        <span className="text-[11px] font-medium">Supabase · Entity Counts</span>
-      </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-        {Object.entries(ENTITY_LABELS).map(([key, label]) => (
-          <div key={key} className="flex items-center justify-between">
-            <span className="text-[11px] text-aura-muted">{label}</span>
-            <span className="text-[11px] font-semibold text-aura-text tabular-nums">
-              {fmtNum(counts[key] ?? 0)}
-            </span>
-          </div>
-        ))}
-      </div>
-    </Card>
+    <div className="flex items-center justify-between text-[11px]">
+      <span className="text-aura-muted">{label}</span>
+      <span className="font-semibold text-aura-text">{value}</span>
+    </div>
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+function SupabaseModalContent({ stats }: { stats: SupabaseStats }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <StatusDot ok={stats.ok} />
+        <span className="text-xs font-medium text-aura-text">
+          {stats.ok ? 'Connected' : 'Unreachable'}
+        </span>
+        {stats.error && <span className="text-[10px] text-aura-error truncate">{stats.error}</span>}
+      </div>
+
+      {stats.ok && stats.counts && (
+        <>
+          <div className="grid grid-cols-2 gap-x-5 gap-y-1.5">
+            {Object.entries(ENTITY_LABELS).map(([key, label]) => (
+              <div key={key} className="flex items-center justify-between text-[11px]">
+                <span className="text-aura-muted">{label}</span>
+                <span className="font-semibold text-aura-text tabular-nums">
+                  {fmtNum(stats.counts[key] ?? 0)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-white/[0.06] pt-2 space-y-1.5">
+            <Row label="Pending jobs"  value={stats.pendingJobs ?? 0} />
+            <Row label="Jobs (24h)"    value={stats.recentJobs ?? 0} />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function R2ModalContent({ stats }: { stats: R2Stats }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <StatusDot ok={stats.ok} />
+        <span className="text-xs font-medium text-aura-text">
+          {stats.ok ? 'Connected' : 'Unreachable'}
+        </span>
+      </div>
+      {stats.ok && (
+        <div className="space-y-1.5">
+          <Row label="Image objects" value={`${fmtNum(stats.imageObjects)}${stats.imagesTruncated ? '+' : ''}`} />
+          <Row label="Prefix"        value={<span className="font-mono text-[10px] text-aura-muted">images/</span>} />
+        </div>
+      )}
+      {stats.error && <p className="text-[10px] text-aura-error">{stats.error}</p>}
+    </div>
+  )
+}
+
+function Neo4jModalContent({ stats }: { stats: Neo4jStats }) {
+  if (!stats.configured) {
+    return (
+      <div className="flex items-center gap-2 text-aura-muted">
+        <AlertTriangle size={13} />
+        <p className="text-[11px]">Not configured — add NEO4J_URI env var</p>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <StatusDot ok={stats.ok ?? false} />
+        <span className="text-xs font-medium text-aura-text">
+          {stats.ok ? 'Connected' : 'Unreachable'}
+        </span>
+      </div>
+      {stats.ok && <Row label="Total nodes" value={fmtNum(stats.nodeCount ?? 0)} />}
+      {stats.error && <p className="text-[10px] text-aura-error">{stats.error}</p>}
+    </div>
+  )
+}
+
+function VercelModalContent({ stats }: { stats: VercelStats }) {
+  if (!stats.configured) {
+    return (
+      <div className="flex items-center gap-2 text-aura-muted">
+        <AlertTriangle size={13} />
+        <p className="text-[11px]">Add VERCEL_TOKEN + VERCEL_PROJECT_ID env vars</p>
+      </div>
+    )
+  }
+  const state = deployState(stats.state)
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-aura-muted">Status</span>
+        <DeployBadge state={state} />
+      </div>
+      {stats.name     && <Row label="Project"     value={stats.name} />}
+      {stats.createdAt && <Row label="Last deploy" value={fmtAgo(stats.createdAt)} />}
+      {stats.url && (
+        <a
+          href={stats.url.startsWith('http') ? stats.url : `https://${stats.url}`}
+          target="_blank" rel="noreferrer"
+          className="block text-[10px] text-aura-accent/70 hover:text-aura-accent truncate transition-colors"
+        >
+          {stats.url.replace(/^https?:\/\//, '')}
+        </a>
+      )}
+      {(stats.error ?? stats.errorMessage) && (
+        <p className="text-[10px] text-aura-error">{stats.error ?? stats.errorMessage}</p>
+      )}
+    </div>
+  )
+}
+
+function RailwayModalContent({ stats }: { stats: RailwayStats }) {
+  if (!stats.configured) {
+    return (
+      <div className="flex items-center gap-2 text-aura-muted">
+        <AlertTriangle size={13} />
+        <p className="text-[11px]">Add RAILWAY_TOKEN + RAILWAY_PROJECT_ID env vars</p>
+      </div>
+    )
+  }
+  if (stats.error) return <p className="text-[10px] text-aura-error">{stats.error}</p>
+  return (
+    <div className="space-y-3">
+      {stats.deployments?.map((d, i) => (
+        <div key={i} className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-aura-text">{d.serviceName}</span>
+            <DeployBadge state={deployState(d.status)} />
+          </div>
+          {d.createdAt && <Row label="Deployed" value={fmtAgo(d.createdAt)} />}
+          {d.url && (
+            <a
+              href={d.url.startsWith('http') ? d.url : `https://${d.url}`}
+              target="_blank" rel="noreferrer"
+              className="block text-[10px] text-aura-accent/70 hover:text-aura-accent truncate transition-colors"
+            >
+              {d.url.replace(/^https?:\/\//, '')}
+            </a>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CloudflareModalContent({ stats }: { stats: CloudflareStats }) {
+  if (!stats.configured) {
+    return (
+      <div className="flex items-center gap-2 text-aura-muted">
+        <AlertTriangle size={13} />
+        <p className="text-[11px]">Add CF_API_TOKEN + CF_PAGES_PROJECT env vars</p>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-3">
+      {stats.pages && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-aura-muted">{stats.pages.environment}</span>
+            <DeployBadge state={deployState(stats.pages.state)} />
+          </div>
+          <Row label="Stage"       value={stats.pages.stageName} />
+          {stats.pages.createdAt && <Row label="Last deploy" value={fmtAgo(stats.pages.createdAt)} />}
+          {stats.pages.url && (
+            <a
+              href={stats.pages.url.startsWith('http') ? stats.pages.url : `https://${stats.pages.url}`}
+              target="_blank" rel="noreferrer"
+              className="block text-[10px] text-aura-accent/70 hover:text-aura-accent truncate transition-colors"
+            >
+              {stats.pages.url.replace(/^https?:\/\//, '')}
+            </a>
+          )}
+        </div>
+      )}
+      {stats.error && <p className="text-[10px] text-aura-error">{stats.error}</p>}
+      {stats.traffic && stats.traffic.dates.length > 0 && (
+        <div className="border-t border-white/[0.06] pt-2">
+          <TrafficChart traffic={stats.traffic} />
+        </div>
+      )}
+      {!stats.traffic && (
+        <div className="flex items-center gap-2 text-aura-muted">
+          <AlertTriangle size={11} />
+          <span className="text-[10px]">Add CF_ZONE_ID for traffic analytics</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Node modal ────────────────────────────────────────────────────────────────
+
+function NodeModal({ id, stats, onClose }: { id: NodeId; stats: Stats; onClose: () => void }) {
+  const meta   = NODE_META[id]
+  const Icon   = meta.icon
+  const status = getNodeStatus(id, stats)
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm px-4 pb-6"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 48, opacity: 0 }}
+        animate={{ y: 0,  opacity: 1 }}
+        exit={{    y: 48, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+        className="w-full max-w-sm glass rounded-2xl border border-white/[0.12] p-4 space-y-3"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className={clsx(
+              'w-8 h-8 rounded-xl flex items-center justify-center',
+              status === true  ? 'bg-aura-success/10 border border-aura-success/30' :
+              status === false ? 'bg-aura-error/10 border border-aura-error/30'     :
+                                 'bg-white/[0.05] border border-white/[0.1]',
+            )}>
+              <Icon size={15} className={clsx(
+                status === true  ? 'text-aura-success' :
+                status === false ? 'text-aura-error'   : 'text-aura-muted',
+              )} />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-aura-text leading-none">{meta.label}</p>
+              <p className="text-[10px] text-aura-muted mt-0.5">{meta.sub}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-aura-muted hover:text-aura-text hover:bg-white/[0.06] transition-all"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="border-t border-white/[0.06]" />
+
+        {/* Per-node content */}
+        {id === 'supabase'   && <SupabaseModalContent   stats={stats.supabase}   />}
+        {id === 'r2'         && <R2ModalContent         stats={stats.r2}         />}
+        {id === 'neo4j'      && <Neo4jModalContent      stats={stats.neo4j}      />}
+        {id === 'vercel'     && <VercelModalContent     stats={stats.vercel}     />}
+        {id === 'railway'    && <RailwayModalContent    stats={stats.railway}    />}
+        {id === 'cloudflare' && <CloudflareModalContent stats={stats.cloudflare} />}
+      </motion.div>
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function SystemDashboard() {
-  const [stats, setStats]       = useState<Stats | null>(null)
-  const [loading, setLoading]   = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
+  const [stats,       setStats]       = useState<Stats | null>(null)
+  const [loading,     setLoading]     = useState(true)
+  const [refreshing,  setRefreshing]  = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-  const [error, setError]       = useState<string | null>(null)
+  const [error,       setError]       = useState<string | null>(null)
+  const [activeNode,  setActiveNode]  = useState<NodeId | null>(null)
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
@@ -345,8 +677,7 @@ export function SystemDashboard() {
     try {
       const res = await fetch('/api/stats')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      setStats(data)
+      setStats(await res.json())
       setLastUpdated(new Date())
     } catch (e) {
       setError(String(e))
@@ -362,7 +693,6 @@ export function SystemDashboard() {
     return () => clearInterval(interval)
   }, [load])
 
-  // ── Loading state ──────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3 text-aura-muted">
@@ -374,7 +704,7 @@ export function SystemDashboard() {
 
   if (error && !stats) {
     return (
-      <Card className="flex items-start gap-3 text-aura-error">
+      <div className="glass rounded-xl border border-white/[0.07] p-3 flex items-start gap-3 text-aura-error">
         <XCircle size={16} className="shrink-0 mt-0.5" />
         <div>
           <p className="text-sm font-medium">Failed to load stats</p>
@@ -383,34 +713,25 @@ export function SystemDashboard() {
             Retry
           </button>
         </div>
-      </Card>
+      </div>
     )
   }
 
   const s = stats!
 
-  // ── Derived state ──────────────────────────────────────────────────────────
-  const vercelState   = s.vercel.configured   ? deployState(s.vercel.state)      : 'unconfigured'
-  const cfPagesState  = s.cloudflare.configured && s.cloudflare.pages
-    ? deployState(s.cloudflare.pages.state) : 'unconfigured'
-  const railwayStates = s.railway.configured && s.railway.deployments
-    ? s.railway.deployments.map(d => deployState(d.status))
-    : []
-
   return (
-    <AnimatePresence>
+    <>
       <motion.div
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="space-y-4"
+        className="space-y-3"
       >
-
-        {/* Header row */}
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap size={14} className="text-aura-accent" />
-            <span className="text-xs font-semibold text-aura-text">System Dashboard</span>
+            <span className="text-xs font-semibold text-aura-text">Architecture</span>
           </div>
           <div className="flex items-center gap-2">
             {lastUpdated && (
@@ -428,142 +749,51 @@ export function SystemDashboard() {
           </div>
         </div>
 
-        {/* ── Service Health ─────────────────────────────────────────────── */}
-        <div>
-          <SectionLabel>Service Health</SectionLabel>
-          <div className="grid grid-cols-2 gap-2">
-
-            <HealthCard
-              icon={<Database size={13} />}
-              label="Supabase DB"
-              ok={s.supabase.ok ?? false}
-              detail={s.supabase.ok ? `${fmtNum((s.supabase.counts?.lectures ?? 0))} lectures` : 'Unreachable'}
-              sub={s.supabase.ok ? `${fmtNum(s.supabase.counts?.courses ?? 0)} courses` : s.supabase.error}
-            />
-
-            <HealthCard
-              icon={<HardDrive size={13} />}
-              label="R2 Storage"
-              ok={s.r2.ok ?? false}
-              detail={s.r2.ok
-                ? `${fmtNum(s.r2.imageObjects)}${s.r2.imagesTruncated ? '+' : ''} images`
-                : 'Unreachable'}
-              sub={s.r2.ok ? 'images/ prefix' : s.r2.error}
-            />
-
-            <HealthCard
-              icon={<Server size={13} />}
-              label="Neo4j Graph"
-              ok={!s.neo4j.configured ? null : (s.neo4j.ok ?? false)}
-              detail={
-                !s.neo4j.configured ? 'Not configured' :
-                s.neo4j.ok ? `${fmtNum(s.neo4j.nodeCount ?? 0)} nodes` : 'Unreachable'
-              }
-              sub={!s.neo4j.configured ? 'Add NEO4J_URI env var' : s.neo4j.error}
-            />
-
-            <HealthCard
-              icon={<Boxes size={13} />}
-              label="Job Queue"
-              ok={s.supabase.ok ?? false}
-              detail={`${s.supabase.pendingJobs ?? 0} pending`}
-              sub={`${s.supabase.recentJobs ?? 0} jobs in last 24h`}
-            />
-
-          </div>
+        {/* Legend + hint */}
+        <div className="flex flex-wrap items-center gap-3 px-0.5">
+          {[
+            { bg: 'bg-aura-success', label: 'Healthy' },
+            { bg: 'bg-aura-error',   label: 'Error'   },
+            { bg: 'bg-white/20',     label: 'Not configured' },
+          ].map(({ bg, label }) => (
+            <div key={label} className="flex items-center gap-1.5">
+              <span className={clsx('w-1.5 h-1.5 rounded-full', bg)} />
+              <span className="text-[9px] text-aura-muted">{label}</span>
+            </div>
+          ))}
+          <p className="text-[9px] text-aura-muted/40 ml-auto">tap to inspect</p>
         </div>
 
-        {/* ── Deployments ────────────────────────────────────────────────── */}
-        <div>
-          <SectionLabel>Deployments</SectionLabel>
-          <div className="space-y-2">
+        {/* Architecture diagram */}
+        <ArchDiagram stats={s} onNodeClick={setActiveNode} />
 
-            <DeployCard
-              icon={<Globe size={13} />}
-              platform="Vercel · Control Panel"
-              state={s.vercel.configured ? vercelState : 'unconfigured'}
-              label={s.vercel.name}
-              ago={s.vercel.createdAt ? fmtAgo(s.vercel.createdAt) : undefined}
-              url={s.vercel.url}
-              error={s.vercel.error ?? s.vercel.errorMessage
-                ?? (!s.vercel.configured ? 'Add VERCEL_TOKEN + VERCEL_PROJECT_ID env vars' : undefined)}
-            />
-
-            {s.railway.configured && s.railway.deployments?.map((d, i) => (
-              <DeployCard
-                key={i}
-                icon={<GitBranch size={13} />}
-                platform={`Railway · ${d.serviceName}`}
-                state={deployState(d.status)}
-                label={d.status}
-                ago={d.createdAt ? fmtAgo(d.createdAt) : undefined}
-                url={d.url}
-              />
-            ))}
-            {!s.railway.configured && (
-              <DeployCard
-                icon={<GitBranch size={13} />}
-                platform="Railway · Backend"
-                state="unconfigured"
-                error="Add RAILWAY_TOKEN + RAILWAY_PROJECT_ID env vars"
-              />
-            )}
-            {s.railway.error && (
-              <DeployCard
-                icon={<GitBranch size={13} />}
-                platform="Railway · Backend"
-                state="error"
-                error={s.railway.error}
-              />
-            )}
-
-            <DeployCard
-              icon={<Globe size={13} />}
-              platform={`Cloudflare Pages · ${s.cloudflare.pages?.environment ?? 'Frontend'}`}
-              state={s.cloudflare.configured ? cfPagesState : 'unconfigured'}
-              label={s.cloudflare.pages ? `${s.cloudflare.pages.stageName} (${s.cloudflare.pages.state})` : undefined}
-              ago={s.cloudflare.pages?.createdAt ? fmtAgo(s.cloudflare.pages.createdAt) : undefined}
-              url={s.cloudflare.pages?.url}
-              error={s.cloudflare.error
-                ?? (!s.cloudflare.configured ? 'Add CF_API_TOKEN + CF_PAGES_PROJECT env vars' : undefined)}
-            />
-
-          </div>
+        {/* Edge legend */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 px-0.5 pt-1">
+          {[
+            { color: 'bg-[rgba(34,211,238,0.5)]',  label: 'SQL / Supabase' },
+            { color: 'bg-[rgba(99,102,241,0.5)]',  label: 'S3 / R2'        },
+            { color: 'bg-[rgba(52,211,153,0.5)]',  label: 'HTTP REST'       },
+            { color: 'bg-[rgba(251,191,36,0.5)]',  label: 'Bolt / Neo4j'   },
+          ].map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1.5">
+              <span className={clsx('inline-block h-[2px] w-5 rounded', color)} />
+              <span className="text-[9px] text-aura-muted">{label}</span>
+            </div>
+          ))}
         </div>
 
-        {/* ── Traffic ────────────────────────────────────────────────────── */}
-        {s.cloudflare.traffic && s.cloudflare.traffic.dates.length > 0 && (
-          <div>
-            <SectionLabel>Traffic</SectionLabel>
-            <TrafficChart traffic={s.cloudflare.traffic} />
-          </div>
-        )}
-
-        {/* Traffic not configured notice */}
-        {s.cloudflare.configured && !s.cloudflare.traffic && (
-          <div>
-            <SectionLabel>Traffic</SectionLabel>
-            <Card className="flex items-center gap-2 text-aura-muted">
-              <AlertTriangle size={13} />
-              <span className="text-xs">Add CF_ZONE_ID env var to enable traffic analytics</span>
-            </Card>
-          </div>
-        )}
-
-        {/* ── Database Stats ─────────────────────────────────────────────── */}
-        {s.supabase.ok && s.supabase.counts && (
-          <div>
-            <SectionLabel>Database</SectionLabel>
-            <EntityCounts counts={s.supabase.counts} />
-          </div>
-        )}
-
-        {/* ── Footer ─────────────────────────────────────────────────────── */}
+        {/* Footer */}
         <div className="text-center pt-1">
-          <p className="text-[10px] text-aura-muted/50">Auto-refreshes every 60s</p>
+          <p className="text-[10px] text-aura-muted/40">Auto-refreshes every 60s</p>
         </div>
-
       </motion.div>
-    </AnimatePresence>
+
+      {/* Node detail modal */}
+      <AnimatePresence>
+        {activeNode && (
+          <NodeModal id={activeNode} stats={s} onClose={() => setActiveNode(null)} />
+        )}
+      </AnimatePresence>
+    </>
   )
 }
